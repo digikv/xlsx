@@ -738,8 +738,8 @@ IF HB_ISNUMERIC(nRow)
 ENDIF
 RETURN Self
 
-METHOD AddChart( uAddr, oChart, nX, nY, nX_Scale, nY_Scale ) CLASS WorkSheet
-RETURN Self
+//METHOD AddChart( uAddr, oChart, nX, nY, nX_Scale, nY_Scale ) CLASS WorkSheet
+//RETURN Self
 
 METHOD MergeCell( uAddr ) CLASS WorkSheet
 LOCAL nCol1, nCol2, nRow1, nRow2, adr, I, J, K
@@ -823,7 +823,7 @@ Return ::aData[nRow,nCol]
 
 METHOD WriteCell( uAddr, xValue, nStyle ) CLASS WorkSheet
 LOCAL nCol := 0, nRow := 0, lIsMerge := .F., nRow1 := 0, nCol1 := 0, nRow2 := 0, nCol2 := 0
-LOCAL nPos, i, j, k, l
+LOCAL nPos, i, j, k, l, adr
 IF HB_ISARRAY( uAddr )
 	nRow := uAddr[1]
 	nCol := uAddr[2]
@@ -905,7 +905,7 @@ ENDIF
 Return ::aData[nRow,nCol]
 
 METHOD WriteWorksheet(n, cPath) CLASS WorkSheet
-LOCAL v, i, j, c, x, handle, ht, cLastStyle := ''
+LOCAL v, i, j, c, handle, ht, cLastStyle := ''
 handle := FCreate( cPath+"sheet"+HB_NTOS(n)+".xml" )
 FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
 FWrite( handle, '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac xr xr2 xr3" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xmlns:xr2="http://schemas.microsoft.com/office/spreadsheetml/2015/revision2" xmlns:xr3="http://schemas.microsoft.com/office/spreadsheetml/2016/revision3" xr:uid="{00000000-0001-0000-0000-000000000000}">'+chr(10) )
