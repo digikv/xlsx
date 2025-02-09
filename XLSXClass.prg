@@ -1,8 +1,8 @@
 /*
  *
  * XLSX writer/reader Class - Pure Harbour 
- * Version 1.3.2
- * Copyright 2018 - 2022 Srđan Dragojlović <digikv@yahoo.com>
+ *
+ * Copyright 2018 - 2025 Srđan Dragojlović <digikv@yahoo.com>
  * Company  S.O.K. doo Kraljevo
  * www - http://www.sokdoo.com
 */
@@ -14,6 +14,7 @@
 
 REQUEST HB_CODEPAGE_UTF8EX
 
+STATIC aStdNumFormats := { "0" => -1, "0.00" => -2, "#,##0" => -3, "#,##0.00" => -4, "0%" => -9,  "0.00%" => -10, "0.00E+00" => -11, "# ?/?" => -12, "# ??/??" => -13, "m/d/yyyy" => -14, "dd.mm.yyyy" => -14, "dd/mm/yyyy" => -14, "d-mmm-yy" => -15, "d-mmm" => -16, "mmm-yy" => -17, "h:mm AM/PM" => -18, "h:mm:ss AM/PM" => -19, "h:mm" => -20, "h:mm:ss" => -21, "m/d/yyyy h:mm" => -22, "#,##0 ;(#,##0)" => -37, "#,##0 ;Red" => -38, "#,##0.00 ;(#,##0.00)" => -39, "#,##0.00 ;Red" => -40, "mm:ss" => -45, "[h]:mm:ss" => -46, "mm:ss.0" => -47, "##0.00E+0" => -48, "@"  => -49 }
 STATIC aHorizontal := {"left","center","right"}
 STATIC aVertical := {"top","center","bottom"}
 STATIC aBordersStyle := { "thin", "medium", "thick", "double", "dashed", "dotted", "hair", "mediumDashed", "dashDot", "mediumDashDot", "dashDotDot", "mediumDashDotDot", "slantDashDot" }
@@ -31,7 +32,7 @@ DATA ScaleCrop INIT .F.
 DATA LinksUpToDate INIT .F.
 DATA SharedDoc INIT .F.
 DATA HyperlinksChanged INIT .F.
-DATA AppVersion INIT "12.0000"
+DATA AppVersion INIT "12.1000"
 DATA aWorkSheetNames PROTECTED  
 DATA aWorkSheetObjects PROTECTED 
 DATA aWorkSheetDrawingObjects PROTECTED 
@@ -134,7 +135,9 @@ Return nPos
 METHOD NewFormat( cFormat ) CLASS WorkBook
 Local nPos := 0
 IF HB_ISSTRING( cFormat )
-	IF (nPos:=ASCAN( ::aNumFormat, cFormat ) )==0
+	IF hb_hHaskey( aStdNumFormats, cFormat )
+		nPos := aStdNumFormats[cFormat]
+	ELSEIF (nPos:=ASCAN( ::aNumFormat, cFormat ) )==0
 		AADD( ::aNumFormat, cFormat )
 		nPos := LEN( ::aNumFormat )
 	ENDIF
@@ -163,17 +166,16 @@ c += ","+iif( HB_ISNIL( nBorder ) .OR. !HB_ISNUMERIC( nBorder ), "0", HB_NTOC(II
 c += ","+iif( HB_ISNIL( nFill ) .OR. !HB_ISNUMERIC( nFill ), "0", HB_NTOC(IIF(nFill==0,1,nFill)-1,0) )
 c += ","+iif( HB_ISNIL( nHA ) .OR. !HB_ISNUMERIC( nHA ) .OR. nHA<1 .OR. nHa>3, "0", HB_NTOC(nHA,0) )
 c += ","+iif( HB_ISNIL( nVA ) .OR. !HB_ISNUMERIC( nVA ) .OR. nVA<1 .OR. nVa>3, "0", HB_NTOC(nVA,0) )
-c += ","+iif( HB_ISNIL( nFormat ) .OR. !HB_ISNUMERIC( nFormat ), "0", HB_NTOC(nFormat+163,0) )
+c += ","+iif( HB_ISNIL( nFormat ) .OR. !HB_ISNUMERIC( nFormat ), "0", IIF( nFormat>0,HB_NTOS(nFormat+163), HB_NTOS(-nFormat) ) )
 c += ","+iif( HB_ISNIL( nRotation ) .OR. !HB_ISNUMERIC( nRotation ), "0", HB_NTOC(nRotation,0) )
 c += ","+iif( HB_ISNIL( lWrap ) .OR. !HB_ISLOGICAL( lWrap ), "0", "1" )
 IF (nPos:=ASCAN( ::aWorkbookStyles, c ) )==0
 	AADD( ::aWorkbookStyles, c )
 	nPos := LEN( ::aWorkbookStyles )
 ENDIF
-Return nPos+1
+Return nPos
 
 METHOD New(cName) CLASS WorkBook
-cName=iif(cName==NIL,"",cName)	
 ::cFilePath := iif( FilePath(cName)=="", DiskName() + hb_OSDriveSeparator() + hb_PS() + CurDir() + hb_PS() , FilePath(cName) )
 ::cName := iif( AT(::cFilePath,cName)>0, SUBSTR(cName,LEN(::cFilePath)+1), cName )
 ::aWorkSheetNames := {}  
@@ -183,7 +185,7 @@ cName=iif(cName==NIL,"",cName)
 ::aWorkbookStyles := {}
 ::aWorkbookFills := { "0,00000000,00000000", "0,00000000,00000000" }
 ::aWorkbookBorders := { "0,0,0,0,0" }
-::aNumFormat := { "General", Set( _SET_DATEFORMAT ) }
+::aNumFormat := { }
 ::aUsedDrawingType := {  }
 ::nDrawings := 0
 ::cTempDir := hb_DirSepToOS( hb_DirTemp()+"ExcelTemp" )
@@ -287,25 +289,43 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
    NEXT I
    FWrite( handle, '<Relationship Id="rId'+HB_NTOS(i)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml" />'+chr(10) )
    IF LEN( ::aSharedStrings ) > 0
-		FWrite( handle, '<Relationship Id="rId'+HB_NTOS(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'+chr(10) )
+		FWrite( handle, '<Relationship Id="rId'+HB_NTOS(++i)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'+chr(10) )
    ENDIF 	
    FWrite( handle, '</Relationships>' )   
    FClose( handle )         
-
-	
-// ------------------------------------------------------------ workbook.xml ------------------------------------------------------------------------------   
-   handle := FCreate( ::cTempDir+cSep+"xl"+cSep+"workbook.xml" )
-   FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
-   FWrite( handle, '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'+chr(10) )
-   FWrite( handle, '<bookViews><workbookView xWindow="240" yWindow="15" windowWidth="16095" windowHeight="9660"/></bookViews>'+chr(10) )
-   FWrite( handle, '<sheets>'+chr(10) )
-   FOR I:=1 TO LEN( ::aWorkSheetNames )
+   
+   // ------------------------------------------------------------ workbook.xml ------------------------------------------------------------------------------   
+	handle := FCreate( ::cTempDir+cSep+"xl"+cSep+"workbook.xml" )
+	FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
+	FWrite( handle, '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x15 xr xr6 xr10 xr2" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xmlns:xr6="http://schemas.microsoft.com/office/spreadsheetml/2016/revision6" xmlns:xr10="http://schemas.microsoft.com/office/spreadsheetml/2016/revision10" xmlns:xr2="http://schemas.microsoft.com/office/spreadsheetml/2015/revision2">'+chr(10) )
+	FWrite( handle, '<fileVersion appName="xl" lastEdited="7" lowestEdited="7" rupBuild="28429"/>'+chr(10) )
+	FWrite( handle, '<workbookPr defaultThemeVersion="166925"/>'+chr(10) )
+	FWrite( handle, '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'+chr(10) )
+	FWrite( handle, '<mc:Choice Requires="x15"><x15ac:absPath url="C:\Dropbox\XLSX\" xmlns:x15ac="http://schemas.microsoft.com/office/spreadsheetml/2010/11/ac"/></mc:Choice>'+chr(10) )
+	FWrite( handle, '</mc:AlternateContent>'+chr(10) )
+	FWrite( handle, '<xr:revisionPtr revIDLastSave="0" documentId="8_{063AD3CC-BC4D-49E0-9FE7-D121456950CA}" xr6:coauthVersionLast="47" xr6:coauthVersionMax="47" xr10:uidLastSave="{00000000-0000-0000-0000-000000000000}"/>'+chr(10) )
+	FWrite( handle, '<bookViews>'+chr(10) )
+	FWrite( handle, '<workbookView xWindow="-108" yWindow="-108" windowWidth="23256" windowHeight="12456" xr2:uid="{00000000-000D-0000-FFFF-FFFF00000000}"/>'+chr(10) )
+	FWrite( handle, '</bookViews>'+chr(10) )
+	FWrite( handle, '<sheets>'+chr(10) )
+	FOR I:=1 TO LEN( ::aWorkSheetNames )
 		FWrite( handle, '<sheet name="'+::aWorkSheetNames[i]+'" sheetId="'+HB_NTOS(i)+'" r:id="rId'+HB_NTOS(i)+'"/>'+chr(10) )   
-   NEXT I
-   FWrite( handle, '</sheets>'+chr(10) )
-   FWrite( handle, '<calcPr calcId="124519" fullCalcOnLoad="1"/>'+chr(10) )
-   FWrite( handle, '</workbook>' )   
-   FClose( handle )         
+	NEXT I
+	FWrite( handle, '</sheets>'+chr(10) )
+	FWrite( handle, '<calcPr calcId="191029"/>'+chr(10) )
+	FWrite( handle, '<extLst>'+chr(10) )
+	FWrite( handle, '<ext uri="{B58B0392-4F1F-4190-BB64-5DF3571DCE5F}" xmlns:xcalcf="http://schemas.microsoft.com/office/spreadsheetml/2018/calcfeatures">'+chr(10) )
+	FWrite( handle, '<xcalcf:calcFeatures>'+chr(10) )
+	FWrite( handle, '<xcalcf:feature name="microsoft.com:RD"/>'+chr(10) )
+	FWrite( handle, '<xcalcf:feature name="microsoft.com:Single"/>'+chr(10) )
+	FWrite( handle, '<xcalcf:feature name="microsoft.com:FV"/>'+chr(10) )
+	FWrite( handle, '<xcalcf:feature name="microsoft.com:CNMTM"/>'+chr(10) )
+	FWrite( handle, '<xcalcf:feature name="microsoft.com:LET_WF"/>'+chr(10) )
+	FWrite( handle, '</xcalcf:calcFeatures>'+chr(10) )
+	FWrite( handle, '</ext>'+chr(10) )
+	FWrite( handle, '</extLst>'+chr(10) )
+	FWrite( handle, '</workbook>' )   
+	FClose( handle )         
 
    // ------------------------------------------------------------ sharedStrings.xml ------------------------------------------------------------------------------------------------------------------------   
    IF ::_str_total>0
@@ -322,23 +342,23 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
    // ------------------------------------------------------------ styles.xml ------------------------------------------------------------------------------------------------------------------------   
 	handle := FCreate( ::cTempDir+cSep+"xl"+cSep+"styles.xml" )
 	FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
-    FWrite( handle, '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+chr(10) )
-	FWrite( handle, '<numFmts count="'+HB_NTOS(LEN(::aNumFormat))+'">')
+    FWrite( handle, '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac x16r2 xr" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:x16r2="http://schemas.microsoft.com/office/spreadsheetml/2015/02/main" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision">'+chr(10) )
+	FWrite( handle, '<numFmts count="'+HB_NTOS(LEN(::aNumFormat))+'">'+chr(10))
 	FOR I:=1 TO LEN( ::aNumFormat )
 		FWrite( handle, '<numFmt numFmtId="'+HB_NTOS(I+163)+'" formatCode="'+::aNumFormat[I]+'"/>'+chr(10) )
 	NEXT I
 	FWrite( handle, '</numFmts>'+chr(10))
 	FWrite( handle, '<fonts count="'+HB_NTOS(LEN(::aWorkbookFonts))+'">'+chr(10) )	
-	FWrite( handle, '<font/>'+chr(10) )
-	FOR I:=2 TO LEN( ::aWorkbookFonts )
+	//FWrite( handle, '<font/>'+chr(10) )
+	FOR I:=1 TO LEN( ::aWorkbookFonts )
 	    J:= hb_ATokens( ::aWorkbookFonts[i], "," )	
 		FWrite( handle, '<font>' )		
+		FWrite( handle, '<name val="'+j[1]+'"/>' )
+		FWrite( handle, '<sz val="'+j[2]+'"/>' )		
 		IF j[3]=="1";FWrite( handle, '<b/>' );ENDIF
 		IF j[4]=="1";FWrite( handle, '<i/>' );ENDIF
 		IF j[5]=="1";FWrite( handle, '<u/>' );ENDIF
 		IF j[6]=="1";FWrite( handle, '<strike/>' );ENDIF		
-		FWrite( handle, '<name val="'+j[1]+'"/>' )
-		FWrite( handle, '<sz val="'+j[2]+'"/>' )
 		FWrite( handle, '<color rgb="'+j[7]+'"/>' )
 		FWrite( handle, '</font>'+chr(10) )
 	NEXT I
@@ -351,7 +371,7 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 	NEXT I
 	FWrite( handle, '</fills>'+chr(10) )		
 	FWrite( handle, '<borders count="'+HB_NTOS(LEN(::aWorkbookBorders))+'">'+chr(10) )		
-	FWrite( handle, '<border diagonalUp="false" diagonalDown="false"><left/><right/><top/><bottom/><diagonal/></border>'+chr(10) )		
+	FWrite( handle, '<border><left/><right/><top/><bottom/><diagonal/></border>'+chr(10) )		
 	FOR I:=2 TO LEN( ::aWorkbookBorders )
 	    J:= hb_ATokens( ::aWorkbookBorders[i], "," )
 		FWrite( handle, '<border>' )
@@ -364,24 +384,41 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 	NEXT I
 	FWrite( handle, '</borders>'+chr(10) )		
 	FWrite( handle, '<cellStyleXfs count="1">'+chr(10) )		
-	FWrite( handle, '<xf />'+chr(10) )		
-	FWrite( handle, '</cellStyleXfs>'+chr(10) )		
-	FWrite( handle, '<cellXfs count="'+HB_NTOS(LEN(::aWorkbookStyles)+2)+'">'+chr(10) )		
 	FWrite( handle, '<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>'+chr(10) )		
-	FWrite( handle, '<xf numFmtId="165"/>'+chr(10) )
+	FWrite( handle, '</cellStyleXfs>'+chr(10) )		
+	FWrite( handle, '<cellXfs count="'+HB_NTOS(LEN(::aWorkbookStyles)+1)+'">'+chr(10) )		
+	FWrite( handle, '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'+chr(10) )		
 	FOR I:=1 TO LEN( ::aWorkbookStyles )
 	    J:= hb_ATokens( ::aWorkbookStyles[i], "," )
 		FWrite( handle, '<xf ' )
-		FWrite( handle, iif(j[1]=="0",'','fontId="'+j[1]+'" ') )
-		FWrite( handle, iif(j[2]=="0",'','borderId="'+j[2]+'" ') )
-		FWrite( handle, iif(j[3]=="0",'','fillId="'+j[3]+'" ') )
-		FWrite( handle, iif(j[6]=="0",'','numFmtId="'+j[6]+'" ') )
-		FWrite( handle, iif(j[4]=="0" .AND. j[5]=="0" .AND. j[7]=="0" .AND. j[8]=="0", 'applyAlignment="0">', 'applyAlignment="1">' ) )
-		c := IIF( j[7]!="0", 'textRotation="'+j[7]+'" ', '' )+IIF( j[8]=="0", 'wrapText="false"', 'wrapText="true"' )
-		FWrite( handle, '<alignment horizontal="'+iif(j[4]=="0", "general", aHorizontal[val(j[4])])+'" vertical="'+iif( j[5]=="0", "bottom", aVertical[val(j[5])])+'" '+c+'/>' )
-		FWrite( handle, '</xf>'+chr(10) )
+		FWrite( handle, iif(j[6]=="0",'numFmtId="0" ','numFmtId="'+j[6]+'" ') )		
+		FWrite( handle, iif(j[1]=="0",'fontID="0" ','fontId="'+j[1]+'" ') )
+		FWrite( handle, iif(j[3]=="0",'fillId="0" ','fillId="'+j[3]+'" ') )
+		FWrite( handle, iif(j[2]=="0",'borderId="0" ','borderId="'+j[2]+'" ') )
+		FWrite( handle, 'xfId="0" ')
+		FWrite( handle, iif(j[6]=="0", '', 'applyNumberFormat="1" ') )				
+		FWrite( handle, iif(j[1]=="0", '', 'applyFont="1" ') )
+		FWrite( handle, iif(j[3]=="0", '', 'applyFill="1" ') )		
+		FWrite( handle, iif(j[2]=="0", '', 'applyBorder="1" ') )
+		FWrite( handle, iif(j[4]=="0" .AND. j[5]=="0" .AND. j[7]=="0" .AND. j[8]=="0", '/>', 'applyAlignment="1">' ) )
+		IF !(j[4]=="0" .AND. j[5]=="0" .AND. j[7]=="0" .AND. j[8]=="0")
+			c := IIF( j[7]!="0", 'textRotation="'+j[7]+'" ', '' )+IIF( j[8]=="0", '', ' wrapText="1"' )
+			FWrite( handle, '<alignment horizontal="'+iif(j[4]=="0", "general", aHorizontal[val(j[4])])+'" vertical="'+iif( j[5]=="0", "bottom", aVertical[val(j[5])])+'"'+c+'/>' )
+			FWrite( handle, '</xf>'+chr(10) )
+		ELSE
+			FWrite( handle, chr(10) )
+		ENDIF
 	NEXT I	
 	FWrite( handle, '</cellXfs>'+chr(10) )		
+	FWrite( handle, '<cellStyles count="1">'+chr(10) )
+	FWrite( handle, '<cellStyle name="Normal" xfId="0" builtinId="0"/>'+chr(10) )
+	FWrite( handle, '</cellStyles>'+chr(10) )	
+	FWrite( handle, '<dxfs count="0"/>'+chr(10) )
+	FWrite( handle, '<tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>'+chr(10) )
+	FWrite( handle, '<extLst>'+chr(10) )
+		FWrite( handle, '<ext uri="{EB79DEF2-80B8-43e5-95BD-54CBDDF9020C}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:slicerStyles defaultSlicerStyle="SlicerStyleLight1"/></ext>'+chr(10) )
+		FWrite( handle, '<ext uri="{9260A510-F301-46a8-8635-F512D64BE5F5}" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main"><x15:timelineStyles defaultTimelineStyle="TimeSlicerStyleLight1"/></ext>'+chr(10) )
+	FWrite( handle, '</extLst>'+chr(10) )
 	FWrite( handle, '</styleSheet>' )   
 	FClose( handle )         
    // -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -653,15 +690,7 @@ METHOD RowDetail( nRow, nHeight, nStyle, lHide )
 //METHOD AddChart( cName )
 METHOD Drawing( cName )
 METHOD ReadWorkSheet( cXML ) 
-METHOD GetMaxRow() 
-METHOD GetMaxCol()		
 ENDCLASS
-
-METHOD GetMaxRow()  CLASS WorkSheet
-RETURN ::nMaxRow
-
-METHOD GetMaxCol()  CLASS WorkSheet
-RETURN ::nMaxCol
 
 METHOD Drawing( cName ) CLASS WorkSheet
 LOCAL oDrawing, nPos 
@@ -709,8 +738,8 @@ IF HB_ISNUMERIC(nRow)
 ENDIF
 RETURN Self
 
-//METHOD AddChart( uAddr, oChart, nX, nY, nX_Scale, nY_Scale ) CLASS WorkSheet
-//RETURN Self
+METHOD AddChart( uAddr, oChart, nX, nY, nX_Scale, nY_Scale ) CLASS WorkSheet
+RETURN Self
 
 METHOD MergeCell( uAddr ) CLASS WorkSheet
 LOCAL nCol1, nCol2, nRow1, nRow2, adr, I, J, K
@@ -794,7 +823,7 @@ Return ::aData[nRow,nCol]
 
 METHOD WriteCell( uAddr, xValue, nStyle ) CLASS WorkSheet
 LOCAL nCol := 0, nRow := 0, lIsMerge := .F., nRow1 := 0, nCol1 := 0, nRow2 := 0, nCol2 := 0
-LOCAL nPos, i, j, k, l, adr
+LOCAL nPos, i, j, k, l
 IF HB_ISARRAY( uAddr )
 	nRow := uAddr[1]
 	nCol := uAddr[2]
@@ -831,6 +860,9 @@ IF !HB_ISNIL(xValue)
 			EndIf		
 		ENDIF
 	ENDIF
+ENDIF
+IF HB_ISNIL(nStyle) .AND. HB_ISDATE(xValue)
+	nStyle := ::oParent:NewStyle( , , , , ,::oParent:NewFormat("dd/mm/yyyy"))
 ENDIF
 IF !HB_ISNIL(nStyle) .AND. HB_ISNUMERIC(nStyle) 	
 	IF LEN( ::aStyle ) < nRow
@@ -876,7 +908,7 @@ METHOD WriteWorksheet(n, cPath) CLASS WorkSheet
 LOCAL v, i, j, c, x, handle, ht, cLastStyle := ''
 handle := FCreate( cPath+"sheet"+HB_NTOS(n)+".xml" )
 FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
-FWrite( handle, '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'+chr(10) )
+FWrite( handle, '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac xr xr2 xr3" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xmlns:xr2="http://schemas.microsoft.com/office/spreadsheetml/2015/revision2" xmlns:xr3="http://schemas.microsoft.com/office/spreadsheetml/2016/revision3" xr:uid="{00000000-0001-0000-0000-000000000000}">'+chr(10) )
 FWrite( handle, '<sheetPr><pageSetUpPr fitToPage="'+iif(::fitToPage,"1","0")+'"/></sheetPr>'+chr(10) )
 FWrite( handle, '<sheetFormatPr defaultRowHeight="15"/>'+chr(10) )
 IF LEN( ::aCols ) > 0
@@ -939,10 +971,8 @@ FOR I:=1 TO LEN( ::aData )
 						FWrite( handle, '<c r="' +c+ '" t="b"><v>' +v+ '</v></c>'+chr(10) )							
 					ENDIF
 				ELSEIF HB_ISDATE(::aData[I,J])	
-					x := Set( _SET_DATEFORMAT, "dd.mm.yyyy" ) 
-                                        v := ALLTRIM( STR(::aData[I,J]-CTOD( "01.01.1900" )+2,10,0) )
-					FWrite( handle, '<c r="' +c+ '" s="1"><v>' +v+ '</v></c>'+chr(10) )
-					Set( _SET_DATEFORMAT, x )
+                    v := ALLTRIM( STR(::aData[I,J]-HB_STOD( "19000101" )+2,10,0) )
+					FWrite( handle, '<c r="' +c+ '" s="'+::aStyle[I,J]+'"><v>' +v+ '</v></c>'+chr(10) )
 				ENDIF
 			ENDIF
 		NEXT J
@@ -998,89 +1028,53 @@ FClose( handle )
 Return Self
 
 METHOD ReadWorkSheet( cFileName ) CLASS WorkSheet
-    Local lBREAK := .f.
-    LOCAL i
-    LOCAL cString
-    LOCAL oXmlDoc := TXmlDocument():new(,5)
-    LOCAL oXmlNode0, oXmlRecScan, oXmlNode, oRow, oCell, oXmlRecScan1 
-    LOCAL nRow, nCol, uAddr, cType, cStyle, xData
-    local xml
-    local ahAtrybutyKomorki
-    xml := simplexml_load_file(cFileName )
-    oXmlNode0 := mxmlFindElement( xml, xml, "worksheet", NIL, NIL, MXML_DESCEND )
-    oXmlNode := mxmlFindElement( oXmlNode0, oXmlNode0, "sheetData", NIL, NIL, MXML_DESCEND )
-    oRow := mxmlFindElement( oXmlNode, oXmlNode, "row", NIL, NIL, MXML_DESCEND )
-    
-    WHILE oRow != NIL
-        ahAtrybutyWiersza := hb_mxmlGetAttrs(oRow)
-        nRow := ahAtrybutyWiersza["r"]
-        oCell := mxmlFindElement( oRow, oRow, "c", NIL, NIL, MXML_DESCEND )
-        cStyle := ""
-        WHILE oCell != NIL
-            ahAtrybutyKomorki := hb_mxmlGetAttrs(oCell)
-            uAddr := ahAtrybutyKomorki["r"]
-            WORKSHEET_RC( uAddr, @nRow, @nCol )
-            ::nMaxCol := IIF( nCol > ::nMaxCol, nCol, ::nMaxCol )
-            ::nMaxRow := IIF( nRow > ::nMaxRow, nRow, ::nMaxRow )
-            IF LEN( ::aData ) < nRow
-                FOR i := LEN(::aData)+1 TO nRow
-                    AADD( ::aData, {} )
-                    AADD( ::aStyle, {} )
-                NEXT I
-            ENDIF
-            IF LEN( ::aData[nRow] ) < nCol
-                FOR i := LEN(::aData[nRow])+1 TO nCol
-                    AADD( ::aData[nRow], NIL )
-                    AADD( ::aStyle[nRow], NIL )
-                NEXT I      
-            ENDIF       
-            cType := iif( hb_hHaskey( ahAtrybutyKomorki, "t" ), ahAtrybutyKomorki["t"], "n" )
-            if hb_hHaskey( ahAtrybutyKomorki, "s" )
-                ::aStyle[nRow,nCol] := VAL(ahAtrybutyKomorki["s"])
-            ENDIF       
-            oChild := mxmlGetFirstChild( oCell )
-            if oChild != NIL
-                nElementType := MXML_TEXT
-                xData := alltrim(HB_UTF8ToStr(mxmlGetText( oChild, @nElementType )))
-                ::aData[nRow,nCol] := iif(cType=="n", VAL(xData), iif( cType=="b", iif(VAL(xData)==0,.F.,.T.), iif(cType=="str","=","")+iif(cType=="s", ::oParent:aSharedStrings[VAL(xData)+1], xData ) ) )
-            ENDIF
-            oCell := mxmlGetNextSibling( oCell )
-        END
-        oRow := mxmlGetNextSibling( oRow )
-    END
-RETURN Self	
-
-STATIC function striptag( cStr, cTag )
-    local nEnd := rat( '<', cStr )
-    local nStart := at('>', cStr )+1 
-return substr(cStr, nStart, nEnd-nStart)
-
-STATIC function simplexml_load_file(cFileName)
-return mxmlLoadString( NIL, hb_MemoRead( cFileName ), @type_callback() )
-
-STATIC FUNCTION type_callback( hNode )
-
-   LOCAL cType                            /* Type string */
-
-   /*
-    * You can lookup attributes and/or use the element name, hierarchy, etc...
-    */
-
-   IF Empty( cType := mxmlElementGetAttr( hNode, "type" ) )
-      //cType := mxmlGetElement( hNode )
-      //debugmsg("pusty typ danych")
-      cType = "char"
-   ENDIF
-
-   SWITCH Lower( cType )
-       CASE "integer" ;  RETURN MXML_INTEGER
-       CASE "opaque"  ;  RETURN MXML_OPAQUE
-       CASE "real"    ;  RETURN MXML_REAL
-       CASE "char"    ;  RETURN MXML_TEXT
-   ENDSWITCH
-
-RETURN MXML_TEXT
-
+	LOCAL i
+	LOCAL cString := Memoread( cFileName )
+	LOCAL oXmlDoc := TXmlDocument():new(,5)
+	LOCAL oXmlNode0, oXmlRecScan, oXmlNode, oRow, oCell, oXmlRecScan1  
+	LOCAL nRow, nCol, uAddr, cType, cStyle, xData
+	oXMlDoc:read( cString )
+	oXmlNode0 := oXmlDoc:findFirst( "worksheet" )
+	oXmlRecScan := TXmlIteratorScan():new( oXmlNode0 )
+	oXmlNode := oXmlRecScan:find( "sheetData" )
+	oXmlRecScan := TXmlIteratorScan():new( oXmlNode )
+	oRow := oXmlRecScan:find( "row" )
+	WHILE oRow != NIL
+		oXmlRecScan1 := TXmlIteratorScan():new( oRow )
+		nRow := oRow:aattributes["r"]
+		oCell := oXmlRecScan1:find( "c" )
+		cStyle := ""
+		WHILE oCell != NIL
+			uAddr := oCell:aattributes["r"]
+			WORKSHEET_RC( uAddr, @nRow, @nCol )
+			::nMaxCol := IIF( nCol > ::nMaxCol, nCol, ::nMaxCol )
+			::nMaxRow := IIF( nRow > ::nMaxRow, nRow, ::nMaxRow )
+			IF LEN( ::aData ) < nRow
+				FOR i := LEN(::aData)+1 TO nRow 
+					AADD( ::aData, {} )
+					AADD( ::aStyle, {} )
+				NEXT I
+			ENDIF
+			IF LEN( ::aData[nRow] ) < nCol
+				FOR i := LEN(::aData[nRow])+1 TO nCol
+					AADD( ::aData[nRow], NIL )
+					AADD( ::aStyle[nRow], NIL )
+				NEXT I	   
+			ENDIF		
+			cType := iif( hb_hHaskey( oCell:aattributes, "t" ), oCell:aattributes["t"], "n" )
+			if hb_hHaskey( oCell:aattributes, "s" )
+				::aStyle[nRow,nCol] := VAL(oCell:aattributes["s"])
+			ENDIF		
+			if oCell:oChild != NIL
+				xData := oCell:oChild:cData 
+				::aData[nRow,nCol] := iif(cType=="n", VAL(xData), iif( cType=="b", iif(VAL(xData)==0,.F.,.T.), iif(cType=="str","=","")+iif(cType=="s", ::oParent:aSharedStrings[VAL(xData)+1], xData ) ) )
+			ENDIF	
+			oCell := oXmlRecScan1:next( "c" )
+		END
+		oRow := oXmlRecScan:next( "row" )
+	END
+RETURN Self
+	
 STATIC Function ColumnIndexToColumnLetter(colIndex)
 LOCAL div := colIndex
 LOCAL colLetter := ""
@@ -1130,16 +1124,19 @@ STATIC FUNCTION my_UnZipFile( cFile, cPath )
   LOCAL nI
   LOCAL aFiles   := { }
   LOCAL aFolders := { }
-
   aFiles := hb_GetFilesInZip( cFile )
-  
   FOR nI := 1 TO Len( aFiles )
     IF ! HB_DirExists( HB_DirSepToOS( HB_FNameDir( aFiles[nI] ) ) )
       HB_DirCreate( HB_DirSepAdd( cPath ) + HB_DirSepToOS( HB_FNameDir( aFiles[nI] ) ) )
     ENDIF
   NEXT
   HB_UnZipFile( cFile, NIL, NIL, NIL, cPath )
-  HB_UnZipFile( cFile, NIL, .T., NIL, cPath, aFiles )
+  HB_UnZipFile( cFile, ;
+                NIL, ;
+                .T., ;
+                NIL, ;
+                cPath, ;
+                aFiles )
 RETURN NIL
 
 STATIC FUNCTION FilePath( cFile )
