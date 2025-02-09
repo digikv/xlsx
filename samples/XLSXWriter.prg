@@ -88,7 +88,7 @@ oSheet1:Cell("B23", "Procter & Gamble" )
 
 // Put JPG drawing 
 oDrawing := oSheet1:Drawing("logo")
-cPicturePath := DiskName() + hb_OSDriveSeparator() + hb_PS() + CurDir() + hb_PS()+"MSLogoMalo.jpg"
+cPicturePath := DiskName() + hb_OSDriveSeparator() + hb_PS() + CurDir() + hb_PS()+"logo.png"
 oDrawing:TwoCellAnchor( "I6", "K9", cPicturePath )
 
 oExcel:Save()
