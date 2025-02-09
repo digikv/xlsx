@@ -1,5 +1,4 @@
--b
 XLSXReader.prg
-XLSXClass.prg
+../XLSXClass.prg
 xhb.hbc
 hbziparc.hbc
