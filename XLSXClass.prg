@@ -18,7 +18,9 @@ STATIC aStdNumFormats := { "0" => -1, "0.00" => -2, "#,##0" => -3, "#,##0.00" =>
 STATIC aHorizontal := {"left","center","right"}
 STATIC aVertical := {"top","center","bottom"}
 STATIC aBordersStyle := { "thin", "medium", "thick", "double", "dashed", "dotted", "hair", "mediumDashed", "dashDot", "mediumDashDot", "dashDotDot", "mediumDashDotDot", "slantDashDot" }
-STATIC aPattern := {"solid", "horzStripe", "vertStripe", "reverseDiagStripe", "diagStripe", "horzCross", "diagCross", "thinHorzStripe", "thinVertStripe", "thinReverseDiagStripe", "thinDiagStripe", "thinHorzCross", "thinDiagCross" }
+// sare za NewFillPattern( n ): ranije imena iz Excel 2003 XML formata (horzStripe...)
+// koja xlsx ne poznaje, pa je radila samo 1 (solid); redosled 1-13 je isti kao ranije
+STATIC aPattern := { "solid", "darkHorizontal", "darkVertical", "darkDown", "darkUp", "darkGrid", "darkTrellis", "lightHorizontal", "lightVertical", "lightDown", "lightUp", "lightGrid", "lightTrellis", "mediumGray", "darkGray", "lightGray", "gray125", "gray0625" }
 STATIC aWorkbookDrawings, aPictureType
 
 CLASS WorkBook
@@ -57,7 +59,7 @@ METHOD NewFont( cFont, nFontSize, lBold, lItalic, lUnderline, lStrike, cRGB )
 METHOD NewFillPattern( nFillPattern, cFG, cBG )
 METHOD NewBorder( nTL, nTR, nTT, nTB, nTD, cCL, cCR, cCT, cCB, cCD  )
 METHOD NewStyle( nFont, nBorder, nFill, nVA, nHA, nFormat, nRotation, lWrap )
-METHOD NewFormat( cFormat )
+METHOD NewFormat( cFormat, lExact )
 METHOD New(cName)
 METHOD WorkSheet(cName)
 METHOD AddDrawing()
@@ -68,6 +70,7 @@ METHOD Save()
 METHOD Read(cName)
 METHOD ToUTF8( c )
 METHOD SheetNames()
+METHOD StyleInfo( nStyle )
 ENDCLASS
 
 // Ucitava postojeci .xlsx. Vraca .T. ako je uspelo, inace .F. i opis greske u ::cError.
@@ -76,7 +79,7 @@ ENDCLASS
 // za fajlove u kojima su sheet-ovi brisani ili premestani).
 METHOD Read( cName ) CLASS WorkBook
 LOCAL cXL, cTok, cA, cTag, nKind, cText, cCur := "", lPh := .F., h, cTarget, cFile
-LOCAL aSST := {}, aKinds, hRels := { => }, aSheets := {}
+LOCAL aSST := {}, aKinds, aXfMap, hRels := { => }, aSheets := {}
    ::cError := ""
    IF ! HB_ISSTRING( cName ) .OR. ! hb_FileExists( cName )
       ::cError := "Fajl ne postoji: " + hb_CStr( cName )
@@ -135,8 +138,11 @@ LOCAL aSST := {}, aKinds, hRels := { => }, aSheets := {}
       ENDCASE
    NEXT
 
-   // za svaki stil (cellXfs): da li je format broja datum/vreme
-   aKinds := _ReadXfKinds( cXL + "styles.xml" )
+   // stilovi: za svaki stil iz fajla (cellXfs) odgovarajuci stil ovog workbook-a
+   // (font, boje, okviri, format, poravnanje) i da li je format datum/vreme
+   aKinds := _ReadStyles( Self, cXL + "styles.xml", cXL + "theme" + hb_PS() + "theme1.xml" )
+   aXfMap := aKinds[ 2 ]
+   aKinds := aKinds[ 1 ]
 
    // rId -> putanja sheet-a
    FOR EACH cTok IN _XTokens( cXL + "_rels" + hb_PS() + "workbook.xml.rels" )
@@ -157,7 +163,7 @@ LOCAL aSST := {}, aKinds, hRels := { => }, aSheets := {}
       ELSE
          cFile := cXL + hb_DirSepToOS( cTarget )
       ENDIF
-      ::WorkSheet( _HAttr( h, "name" ) ):ReadWorkSheet( cFile, aSST, aKinds )
+      ::WorkSheet( _HAttr( h, "name" ) ):ReadWorkSheet( cFile, aSST, aKinds, aXfMap )
    NEXT
    hb_DirRemoveAll( ::cTempDir )
 RETURN .T.
@@ -199,9 +205,43 @@ RETURN IIF( n > 0, ::aWorkSheetObjects[ n ], NIL )
 METHOD SheetNames() CLASS WorkBook
 RETURN AClone( ::aWorkSheetNames )
 
+// Opis stila (broj iz NewStyle() ili oSheet:CellStyle()) kao hash:
+// font, size, bold, italic, underline, strike, color, fill, pattern, border
+// { left, right, top, bottom }, bordercolor { ... }, numformat, halign, valign,
+// rotation, wrap. Boje su ARGB ("FFFF0000"), "" = nema.
+METHOD StyleInfo( nStyle ) CLASS WorkBook
+LOCAL h := { => }, s, f, b, p, nId, aSide := { "left", "right", "top", "bottom" }, i
+s := IIF( HB_ISNUMERIC( nStyle ) .AND. nStyle >= 1 .AND. nStyle <= LEN( ::aWorkbookStyles ), ;
+          hb_ATokens( ::aWorkbookStyles[ nStyle ], "," ), { "0", "0", "0", "0", "0", "0", "0", "0" } )
+f := hb_ATokens( ::aWorkbookFonts[ Val( s[1] ) + 1 ], "," )
+h[ "font" ]      := f[1]
+h[ "size" ]      := Val( f[2] )
+h[ "bold" ]      := ( f[3] == "1" )
+h[ "italic" ]    := ( f[4] == "1" )
+h[ "underline" ] := ( f[5] == "1" )
+h[ "strike" ]    := ( f[6] == "1" )
+h[ "color" ]     := _ARGB( f[7] )
+p := hb_ATokens( ::aWorkbookFills[ Val( s[3] ) + 1 ], "," )
+h[ "pattern" ]   := IIF( Val( s[3] ) >= 2, Val( p[1] ), 0 )
+h[ "fill" ]      := IIF( h[ "pattern" ] > 0, _ARGB( p[2] ), "" )
+b := hb_ATokens( ::aWorkbookBorders[ Val( s[2] ) + 1 ], "," )
+h[ "border" ]      := { => }
+h[ "bordercolor" ] := { => }
+FOR i := 1 TO 4
+   h[ "border" ][ aSide[ i ] ]      := IIF( LEN( b ) >= i * 2 .AND. Val( b[ i * 2 - 1 ] ) > 0, aBordersStyle[ Val( b[ i * 2 - 1 ] ) ], "" )
+   h[ "bordercolor" ][ aSide[ i ] ] := IIF( Empty( h[ "border" ][ aSide[ i ] ] ), "", _ARGB( b[ i * 2 ] ) )
+NEXT
+nId := Val( s[6] )
+h[ "numformat" ] := IIF( nId >= 164 .AND. nId - 163 <= LEN( ::aNumFormat ), ::aNumFormat[ nId - 163 ], _BuiltinFmtCode( nId ) )
+h[ "halign" ]    := IIF( Val( s[4] ) > 0, aHorizontal[ Val( s[4] ) ], "" )
+h[ "valign" ]    := IIF( Val( s[5] ) > 0, aVertical[ Val( s[5] ) ], "" )
+h[ "rotation" ]  := Val( s[7] )
+h[ "wrap" ]      := ( s[8] == "1" )
+RETURN h
+
 METHOD NewFillPattern( nFillPattern, cFG, cBG ) CLASS WorkBook
 LOCAL nPos := 0, c
-IF HB_ISNUMERIC(nFillPattern) .AND. nFillPattern>0 .AND. nFillPattern<14 .AND. HB_ISSTRING( cBG ) .AND. HB_ISSTRING( cFG )
+IF HB_ISNUMERIC(nFillPattern) .AND. nFillPattern>0 .AND. nFillPattern<=LEN(aPattern) .AND. HB_ISSTRING( cBG ) .AND. HB_ISSTRING( cFG )
 	c := HB_NTOC(nFillPattern,0)+","+cFG+","+cBG
 	IF (nPos:=_AScanX( ::aWorkbookFills, c ) )==0
 		AADD( ::aWorkbookFills, c )
@@ -224,10 +264,12 @@ IF (nPos:=_AScanX( ::aWorkbookBorders, c ) )==0
 ENDIF
 Return nPos
 
-METHOD NewFormat( cFormat ) CLASS WorkBook
+// lExact := .T.: format se upisuje tacno kako je zadat (Read() tako cuva npr.
+// "dd.mm.yyyy" iz fajla, umesto ugradjenog formata koji zavisi od podesavanja Windows-a)
+METHOD NewFormat( cFormat, lExact ) CLASS WorkBook
 Local nPos := 0
 IF HB_ISSTRING( cFormat )
-	IF hb_hHaskey( aStdNumFormats, cFormat )
+	IF hb_hHaskey( aStdNumFormats, cFormat ) .AND. !( HB_ISLOGICAL( lExact ) .AND. lExact )
 		nPos := aStdNumFormats[cFormat]
 	ELSEIF (nPos:=_AScanX( ::aNumFormat, cFormat ) )==0
 		AADD( ::aNumFormat, cFormat )
@@ -239,7 +281,8 @@ Return nPos
 METHOD NewFont( cFont, nFontSize, lBold, lItalic, lUnderline, lStrike, cRGB ) CLASS WorkBook
 Local nPos
 cFont := iif( HB_ISNIL( cFont ), "Calibri", cFont )
-cFont += ","+iif( HB_ISNIL( nFontSize ) .OR. !HB_ISNUMERIC( nFontSize ), "11", HB_NTOC(nFontSize,0) )
+// HB_NTOC( n ) bez ",0": velicina 10.5 se ranije zaokruzivala na 11
+cFont += ","+iif( HB_ISNIL( nFontSize ) .OR. !HB_ISNUMERIC( nFontSize ), "11", HB_NTOC(nFontSize) )
 cFont += ","+iif( HB_ISNIL( lBold ) .OR. !HB_ISLOGICAL( lBold ), "0", iif(lBold,"1","0") )
 cFont += ","+iif( HB_ISNIL( lItalic ) .OR. !HB_ISLOGICAL( lItalic ), "0", iif(lItalic,"1","0") ) 
 cFont += ","+iif( HB_ISNIL( lUnderline ) .OR. !HB_ISLOGICAL( lUnderline ), "0", iif(lUnderline,"1","0") )
@@ -260,7 +303,7 @@ c += ","+iif( HB_ISNIL( nHA ) .OR. !HB_ISNUMERIC( nHA ) .OR. nHA<1 .OR. nHa>3, "
 c += ","+iif( HB_ISNIL( nVA ) .OR. !HB_ISNUMERIC( nVA ) .OR. nVA<1 .OR. nVa>3, "0", HB_NTOC(nVA,0) )
 c += ","+iif( HB_ISNIL( nFormat ) .OR. !HB_ISNUMERIC( nFormat ), "0", IIF( nFormat>0,HB_NTOS(nFormat+163), HB_NTOS(-nFormat) ) )
 c += ","+iif( HB_ISNIL( nRotation ) .OR. !HB_ISNUMERIC( nRotation ), "0", HB_NTOC(nRotation,0) )
-c += ","+iif( HB_ISNIL( lWrap ) .OR. !HB_ISLOGICAL( lWrap ), "0", "1" )
+c += ","+iif( HB_ISLOGICAL( lWrap ) .AND. lWrap, "1", "0" )     // ranije je i .F. ukljucivao prelom
 IF (nPos:=_AScanX( ::aWorkbookStyles, c ) )==0
 	AADD( ::aWorkbookStyles, c )
 	nPos := LEN( ::aWorkbookStyles )
@@ -559,8 +602,11 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 		FWrite( handle, iif(j[2]=="0", '', 'applyBorder="1" ') )
 		FWrite( handle, iif(j[4]=="0" .AND. j[5]=="0" .AND. j[7]=="0" .AND. j[8]=="0", '/>', 'applyAlignment="1">' ) )
 		IF !(j[4]=="0" .AND. j[5]=="0" .AND. j[7]=="0" .AND. j[8]=="0")
-			c := IIF( j[7]!="0", ' textRotation="'+j[7]+'"', '' )+IIF( j[8]=="0", '', ' wrapText="1"' )
-			FWrite( handle, '<alignment horizontal="'+iif(j[4]=="0", "general", aHorizontal[val(j[4])])+'" vertical="'+iif( j[5]=="0", "bottom", aVertical[val(j[5])])+'"'+c+'/>' )
+			// samo zadato poravnanje (ranije uvek horizontal="general" vertical="bottom",
+			// sto LibreOffice za rotiran tekst prikazuje drugacije nego podrazumevano)
+			c := IIF( j[4]!="0", ' horizontal="'+aHorizontal[val(j[4])]+'"', '' )+IIF( j[5]!="0", ' vertical="'+aVertical[val(j[5])]+'"', '' )
+			c += IIF( j[7]!="0", ' textRotation="'+j[7]+'"', '' )+IIF( j[8]=="0", '', ' wrapText="1"' )
+			FWrite( handle, '<alignment'+c+'/>' )
 			FWrite( handle, '</xf>'+chr(10) )
 		ELSE
 			FWrite( handle, chr(10) )
@@ -767,14 +813,15 @@ METHOD LastRow()
 METHOD LastCol()
 METHOD MergedCells()
 METHOD MergeCell(uAddr)
-METHOD ColumnsWidth( nMin, nMax, nWidth )
+METHOD CellStyle( uAddr, nStyle )
+METHOD ColumnsWidth( nMin, nMax, nWidth, lHidden )
 METHOD AddHeader( cLeft, cCenter, cRight )
 METHOD AddFooter( cLeft, cCenter, cRight )
 METHOD RowDetail( nRow, nHeight, nStyle, lHide )
 METHOD AddChart( cTitle, cType, cCatRef, xValRef, uFrom, uTo, aNames )
 METHOD WriteDrawingPart( n )
 METHOD Drawing( cName )
-METHOD ReadWorkSheet( cFileName, aSST, aKinds )
+METHOD ReadWorkSheet( cFileName, aSST, aKinds, aXfMap )
 ENDCLASS
 
 METHOD Drawing( cName ) CLASS WorkSheet
@@ -888,11 +935,36 @@ ENDIF
 ::lFooter := .T.
 RETURN Self
 
-METHOD ColumnsWidth( nMin, nMax, nWidth ) CLASS WorkSheet
+// sirina kolona nMin..nMax; lHidden := .T. sakriva kolone
+METHOD ColumnsWidth( nMin, nMax, nWidth, lHidden ) CLASS WorkSheet
 IF HB_ISNUMERIC(nMin) .AND. HB_ISNUMERIC(nMax) .AND. HB_ISNUMERIC(nWidth)
-	AADD( ::aCols, { nMin, nMax, nWidth } )
+	AADD( ::aCols, { nMin, nMax, nWidth, HB_ISLOGICAL( lHidden ) .AND. lHidden } )
 ENDIF
 Return Self
+
+// CellStyle( "B3" ) -> broj stila celije (0 = bez stila); CellStyle( "B3", nStyle )
+// postavlja stil, i na praznu celiju (npr. okvir bez vrednosti)
+METHOD CellStyle( uAddr, nStyle ) CLASS WorkSheet
+LOCAL nRow := 0, nCol := 0, x
+IF ! HB_ISARRAY( uAddr ) .AND. ! HB_ISSTRING( uAddr )
+	RETURN 0
+ENDIF
+_CellRC( uAddr, @nRow, @nCol )
+IF ! HB_ISNUMERIC( nRow ) .OR. ! HB_ISNUMERIC( nCol ) .OR. nRow < 1 .OR. nCol < 1
+	RETURN 0
+ENDIF
+IF HB_ISNUMERIC( nStyle )
+	DO WHILE LEN( ::aStyle ) < nRow
+		AAdd( ::aStyle, {} )
+	ENDDO
+	IF LEN( ::aStyle[ nRow ] ) < nCol
+		ASize( ::aStyle[ nRow ], nCol )
+	ENDIF
+	::aStyle[ nRow, nCol ] := IIF( nStyle > 0, HB_NTOS( nStyle ), NIL )
+	RETURN nStyle
+ENDIF
+x := IIF( nRow <= LEN( ::aStyle ) .AND. HB_ISARRAY( ::aStyle[ nRow ] ) .AND. nCol <= LEN( ::aStyle[ nRow ] ), ::aStyle[ nRow, nCol ], NIL )
+RETURN IIF( HB_ISSTRING( x ), Val( x ), 0 )
 
 METHOD Cell( uAddr, xValue, nStyle ) CLASS WorkSheet
 LOCAL l 
@@ -1087,7 +1159,8 @@ IF LEN( ::aCols ) > 0
 	hW := { => }
 	FOR EACH a IN ::aCols
 		FOR j := Max( a[1], 1 ) TO Min( a[2], 16384 )
-			hW[ j ] := a[3]
+			// sirina + skrivena kolona; kljuc za poredjenje susednih kolona
+			hW[ j ] := HB_NTOC( a[3], 8 ) + IIF( LEN( a ) >= 4 .AND. a[4], '" hidden="1', '' )
 		NEXT
 	NEXT
 	aK := ASort( hb_HKeys( hW ) )
@@ -1100,7 +1173,7 @@ IF LEN( ::aCols ) > 0
 			IF i <= LEN( aK ) .AND. aK[ i ] == nTo + 1 .AND. hW[ aK[ i ] ] == nW
 				nTo := aK[ i ]
 			ELSE
-				FWrite( handle, '<col min="'+HB_NTOS(nFrom)+'" max="'+HB_NTOS(nTo)+'" width="'+HB_NTOC(nW,8)+'" bestFit="1" customWidth="1"/>'+nl )
+				FWrite( handle, '<col min="'+HB_NTOS(nFrom)+'" max="'+HB_NTOS(nTo)+'" width="'+nW+'" bestFit="1" customWidth="1"/>'+nl )
 				IF i <= LEN( aK )
 					nFrom := aK[ i ]
 					nTo := nFrom
@@ -1114,7 +1187,7 @@ ENDIF
 FWrite( handle, '<sheetData>'+nl )
 // Red se pise ako ima podataka ili podesavanja iz RowDetail() (ranije je visina
 // praznog reda bila izgubljena, a stil i skrivanje reda se nisu ni upisivali)
-nRows := Max( LEN( ::aData ), LEN( ::aRowsDetail ) )
+nRows := Max( Max( LEN( ::aData ), LEN( ::aRowsDetail ) ), LEN( ::aStyle ) )
 FOR i := 1 TO nRows
 	aRow := IIF( i <= LEN( ::aData ), ::aData[ i ], {} )
 	aSty := IIF( i <= LEN( ::aStyle ) .AND. HB_ISARRAY( ::aStyle[ i ] ), ::aStyle[ i ], {} )
@@ -1133,12 +1206,16 @@ FOR i := 1 TO nRows
 	ENDIF
 	cCells := ""
 	cLastStyle := ""
-	FOR j := 1 TO LEN( aRow )
-		x := aRow[ j ]
+	FOR j := 1 TO Max( LEN( aRow ), LEN( aSty ) )
+		x := IIF( j <= LEN( aRow ), aRow[ j ], NIL )
+		cS := IIF( j <= LEN( aSty ) .AND. HB_ISSTRING( aSty[ j ] ), aSty[ j ], "" )
 		IF x == NIL
+			// celija bez vrednosti, ali sa stilom (okvir, pozadina - npr. iz Read() ili CellStyle())
+			IF ! Empty( cS )
+				cCells += '<c r="'+ColumnIndexToColumnLetter( j )+HB_NTOS( i )+'" s="'+cS+'"/>'+nl
+			ENDIF
 			LOOP
 		ENDIF
-		cS := IIF( j <= LEN( aSty ) .AND. HB_ISSTRING( aSty[ j ] ), aSty[ j ], "" )
 		IF ! Empty( cS )
 			cLastStyle := cS
 		ENDIF
@@ -1195,26 +1272,26 @@ IF ::lHeader .OR. ::lFooter
 	IF ::lHeader
 		FWrite( handle, '<oddHeader>' )
 		IF LEN(::aHeader[1])>0
-			FWrite( handle, '&amp;L'+XmlEsc(::oParent:ToUTF8(::aHeader[1])) )
+			FWrite( handle, '&amp;L'+XmlEsc(::oParent:ToUTF8(_HFEsc(::aHeader[1]))) )
 		ENDIF
 		IF LEN(::aHeader[2])>0
-			FWrite( handle, '&amp;C'+XmlEsc(::oParent:ToUTF8(::aHeader[2])) )
+			FWrite( handle, '&amp;C'+XmlEsc(::oParent:ToUTF8(_HFEsc(::aHeader[2]))) )
 		ENDIF
 		IF LEN(::aHeader[3])>0
-			FWrite( handle, '&amp;R'+XmlEsc(::oParent:ToUTF8(::aHeader[3])) )
+			FWrite( handle, '&amp;R'+XmlEsc(::oParent:ToUTF8(_HFEsc(::aHeader[3]))) )
 		ENDIF		
 		FWrite( handle, '</oddHeader>' )
 	ENDIF
 	IF ::lFooter
 		FWrite( handle, '<oddFooter>' )
 		IF LEN(::aFooter[1])>0
-			FWrite( handle, '&amp;L'+XmlEsc(::oParent:ToUTF8(::aFooter[1])) )
+			FWrite( handle, '&amp;L'+XmlEsc(::oParent:ToUTF8(_HFEsc(::aFooter[1]))) )
 		ENDIF
 		IF LEN(::aFooter[2])>0
-			FWrite( handle, '&amp;C'+XmlEsc(::oParent:ToUTF8(::aFooter[2])) )
+			FWrite( handle, '&amp;C'+XmlEsc(::oParent:ToUTF8(_HFEsc(::aFooter[2]))) )
 		ENDIF
 		IF LEN(::aFooter[3])>0
-			FWrite( handle, '&amp;R'+XmlEsc(::oParent:ToUTF8(::aFooter[3])) )
+			FWrite( handle, '&amp;R'+XmlEsc(::oParent:ToUTF8(_HFEsc(::aFooter[3]))) )
 		ENDIF		
 		FWrite( handle, '</oddFooter>' )
 	ENDIF	
@@ -1230,16 +1307,22 @@ FClose( handle )
 Return Self
 
 // Ucitava jedan sheet (poziva ga WorkBook:Read). aSST su deljeni stringovi fajla,
-// aKinds za svaki stil kaze da li je format datum (1), datum+vreme (2) ili vreme (3).
-METHOD ReadWorkSheet( cFileName, aSST, aKinds ) CLASS WorkSheet
-LOCAL cTok, cA, cTag, nKind, cText, h, oWB := ::oParent
-LOCAL nRow := 0, nCol := 0, nR, nXf := 1, cR, cType := "", cV, cF, cIs, xVal, i
-LOCAL lIs := .F., lPh := .F., cDateSt, cTimeSt
+// aKinds za svaki stil fajla kaze da li je format datum (1), datum+vreme (2) ili
+// vreme (3), a aXfMap daje odgovarajuci stil ovog workbook-a (0 = bez stila).
+// Pored vrednosti cita stilove celija (i praznih), sirine kolona, visine redova,
+// margine, papir, orijentaciju i zaglavlje/podnozje, pa Read() + Save() cuva izgled.
+METHOD ReadWorkSheet( cFileName, aSST, aKinds, aXfMap ) CLASS WorkSheet
+LOCAL cTok, cA, cTag, nKind, cText, h, a, oWB := ::oParent
+LOCAL nRow := 0, nCol := 0, nR, nXf := 1, nSt := 0, nRSt, cR, cType := "", cV, cF, cIs, xVal, i
+LOCAL lIs := .F., lPh := .F., nDateSt, nTimeSt
    IF ! HB_ISARRAY( aSST )
       aSST := oWB:aSharedStrings
    ENDIF
    IF ! HB_ISARRAY( aKinds )
       aKinds := {}
+   ENDIF
+   IF ! HB_ISARRAY( aXfMap )
+      aXfMap := {}
    ENDIF
    FOR EACH cTok IN _XTokens( cFileName )
       cA := _XTok( cTok, @cTag, @nKind, @cText )
@@ -1265,11 +1348,12 @@ LOCAL lIs := .F., lPh := .F., cDateSt, cTimeSt
             ENDIF
             cType := hb_HGetDef( h, "t", "" )
             nXf := Val( hb_HGetDef( h, "s", "0" ) ) + 1
+            nSt := IIF( nXf <= LEN( aXfMap ), aXfMap[ nXf ], 0 )
             cV := NIL
             cF := NIL
             cIs := NIL
          ENDIF
-         IF nKind != 1                         // </c> ili <c .../>: upis vrednosti
+         IF nKind != 1 .AND. nRow >= 1 .AND. nCol >= 1   // </c> ili <c .../>: upis
             xVal := NIL
             DO CASE
             CASE cType == "inlineStr"
@@ -1294,7 +1378,7 @@ LOCAL lIs := .F., lPh := .F., cDateSt, cTimeSt
             IF HB_ISSTRING( cF ) .AND. ! Empty( cF )
                xVal := { _XDecode( cF ), xVal }
             ENDIF
-            IF xVal != NIL .AND. nRow >= 1 .AND. nCol >= 1
+            IF xVal != NIL
                DO WHILE LEN( ::aData ) < nRow
                   AAdd( ::aData, {} )
                ENDDO
@@ -1304,20 +1388,17 @@ LOCAL lIs := .F., lPh := .F., cDateSt, cTimeSt
                ::aData[ nRow, nCol ] := xVal
                ::nMaxRow := Max( ::nMaxRow, nRow )
                ::nMaxCol := Max( ::nMaxCol, nCol )
-               // datum dobije format datuma, da posle Read() + Save() ne postane broj
-               IF ValType( xVal ) == "D" .OR. ValType( xVal ) == "T"
-                  IF cDateSt == NIL
-                     cDateSt := HB_NTOS( oWB:NewStyle( , , , , , oWB:NewFormat( "dd/mm/yyyy" ) ) )
-                     cTimeSt := HB_NTOS( oWB:NewStyle( , , , , , oWB:NewFormat( "m/d/yyyy h:mm" ) ) )
+               // datum bez stila dobije format datuma, da posle Save() ne postane broj
+               IF nSt == 0 .AND. ( ValType( xVal ) == "D" .OR. ValType( xVal ) == "T" )
+                  IF nDateSt == NIL
+                     nDateSt := oWB:NewStyle( , , , , , oWB:NewFormat( "dd/mm/yyyy" ) )
+                     nTimeSt := oWB:NewStyle( , , , , , oWB:NewFormat( "m/d/yyyy h:mm" ) )
                   ENDIF
-                  DO WHILE LEN( ::aStyle ) < nRow
-                     AAdd( ::aStyle, {} )
-                  ENDDO
-                  IF LEN( ::aStyle[ nRow ] ) < nCol
-                     ASize( ::aStyle[ nRow ], nCol )
-                  ENDIF
-                  ::aStyle[ nRow, nCol ] := IIF( ValType( xVal ) == "D", cDateSt, cTimeSt )
+                  nSt := IIF( ValType( xVal ) == "D", nDateSt, nTimeSt )
                ENDIF
+            ENDIF
+            IF nSt > 0
+               ::CellStyle( { nRow, nCol }, nSt )
             ENDIF
          ENDIF
       CASE cTag == "f"
@@ -1337,15 +1418,56 @@ LOCAL lIs := .F., lPh := .F., cDateSt, cTimeSt
          ENDIF
       CASE cTag == "row"
          IF nKind != 2
-            cR := hb_HGetDef( _XAttrs( cA ), "r", "" )
+            h := _XAttrs( cA )
+            cR := hb_HGetDef( h, "r", "" )
             nRow := IIF( Empty( cR ), nRow + 1, Val( cR ) )
             nCol := 0
+            // visina, skriven red, stil reda
+            IF _XBool( h, "customHeight" ) .OR. _XBool( h, "hidden" ) .OR. _XBool( h, "customFormat" )
+               nRSt := 0
+               IF _XBool( h, "customFormat" )
+                  i := Val( hb_HGetDef( h, "s", "0" ) ) + 1
+                  nRSt := IIF( i <= LEN( aXfMap ), aXfMap[ i ], 0 )
+               ENDIF
+               ::RowDetail( nRow, IIF( _XBool( h, "customHeight" ), Val( hb_HGetDef( h, "ht", "0" ) ), 0 ), ;
+                            nRSt, _XBool( h, "hidden" ) )
+            ENDIF
+         ENDIF
+      CASE cTag == "col"
+         IF nKind != 2
+            h := _XAttrs( cA )
+            IF hb_HHasKey( h, "width" ) .OR. _XBool( h, "hidden" )
+               ::ColumnsWidth( Val( hb_HGetDef( h, "min", "0" ) ), Val( hb_HGetDef( h, "max", "0" ) ), ;
+                               Val( hb_HGetDef( h, "width", "8.43" ) ), _XBool( h, "hidden" ) )
+            ENDIF
          ENDIF
       CASE cTag == "mergeCell"
          cR := hb_HGetDef( _XAttrs( cA ), "ref", "" )
          IF ! Empty( cR ) .AND. _AScanX( ::aMergeCells, cR ) == 0
             AAdd( ::aMergeCells, cR )
          ENDIF
+      CASE cTag == "pageSetUpPr"
+         ::fitToPage := _XBool( _XAttrs( cA ), "fitToPage" )
+      CASE cTag == "pageMargins"
+         h := _XAttrs( cA )
+         ::leftMargin   := Val( hb_HGetDef( h, "left",   _S( ::leftMargin ) ) )
+         ::rightMargin  := Val( hb_HGetDef( h, "right",  _S( ::rightMargin ) ) )
+         ::topMargin    := Val( hb_HGetDef( h, "top",    _S( ::topMargin ) ) )
+         ::bottomMargin := Val( hb_HGetDef( h, "bottom", _S( ::bottomMargin ) ) )
+         ::headerMargin := Val( hb_HGetDef( h, "header", _S( ::headerMargin ) ) )
+         ::footerMargin := Val( hb_HGetDef( h, "footer", _S( ::footerMargin ) ) )
+      CASE cTag == "pageSetup"
+         h := _XAttrs( cA )
+         IF hb_HHasKey( h, "paperSize" )
+            ::paperSize := Val( h[ "paperSize" ] )
+         ENDIF
+         ::lLandscape := ( hb_HGetDef( h, "orientation", "" ) == "landscape" )
+      CASE cTag == "oddHeader" .AND. nKind == 1
+         a := _HFParts( _XEnt( cText ) )
+         ::AddHeader( a[1], a[2], a[3] )
+      CASE cTag == "oddFooter" .AND. nKind == 1
+         a := _HFParts( _XEnt( cText ) )
+         ::AddFooter( a[1], a[2], a[3] )
       ENDCASE
    NEXT
 RETURN Self
@@ -1996,23 +2118,352 @@ IF nKind == 1
 ENDIF
 RETURN hb_DToT( d ) + Round( ( n - nDays ) * 86400, 0 ) / 86400
 
-// za svaki stil iz cellXfs (redom): 0 broj, 1 datum, 2 datum+vreme, 3 vreme
-STATIC FUNCTION _ReadXfKinds( cFile )
-LOCAL cTok, cA, cTag, nKind, h, hFmt := { => }, aKinds := {}, nId, lXfs := .F.
+// Cita xl/styles.xml i vraca { aKinds, aXfMap } za svaki stil fajla (cellXfs, redom):
+// aKinds - 0 broj, 1 datum, 2 datum+vreme, 3 vreme; aXfMap - stil ovog workbook-a
+// napravljen sa NewFont/NewFillPattern/NewBorder/NewFormat/NewStyle (0 = bez stila).
+// Boje mogu biti rgb, iz teme (theme1.xml, sa tint) ili indeksirane (paleta).
+STATIC FUNCTION _ReadStyles( oWB, cFile, cThemeFile )
+LOCAL aTok := _XTokens( cFile ), aTheme := _ThemeColors( cThemeFile ), aIdx := _Palette()
+LOCAL aKinds := {}, aMap := {}, hFmt := { => }, aFonts := {}, aFills := {}, aBorders := {}
+LOCAL hSec := { "numFmts" => 1, "fonts" => 1, "fills" => 1, "borders" => 1, "cellStyleXfs" => 1, ;
+                "cellXfs" => 1, "cellStyles" => 1, "dxfs" => 1, "tableStyles" => 1, "colors" => 1, ;
+                "indexedColors" => 1, "mruColors" => 1, "extLst" => 1 }
+LOCAL cTok, cA, cTag, nKind, h, cSec := "", x, cSide := "", nId, n := 0
+// 1. prolaz: sopstvena paleta indeksiranih boja (u fajlu je posle stilova)
+FOR EACH cTok IN aTok
+   cA := _XTok( cTok, @cTag, @nKind )
+   IF cTag == "indexedColors"
+      cSec := IIF( nKind == 1, cTag, "" )
+   ELSEIF cTag == "rgbColor" .AND. cSec == "indexedColors" .AND. nKind != 2
+      IF ++n <= LEN( aIdx )
+         aIdx[ n ] := Right( _ARGB( hb_HGetDef( _XAttrs( cA ), "rgb", "FF000000" ) ), 6 )
+      ENDIF
+   ENDIF
+NEXT
+cSec := ""
+FOR EACH cTok IN aTok
+   cA := _XTok( cTok, @cTag, @nKind )
+   IF nKind == 0
+      LOOP
+   ENDIF
+   IF hb_HHasKey( hSec, cTag )
+      IF nKind == 1
+         cSec := cTag
+      ELSEIF nKind == 2
+         cSec := ""
+      ENDIF
+      LOOP
+   ENDIF
+   DO CASE
+   CASE cSec == "numFmts"
+      IF cTag == "numFmt" .AND. nKind != 2
+         h := _XAttrs( cA )
+         hFmt[ Val( hb_HGetDef( h, "numFmtId", "0" ) ) ] := hb_HGetDef( h, "formatCode", "" )
+      ENDIF
+   CASE cSec == "fonts"
+      DO CASE
+      CASE cTag == "font"
+         IF nKind != 2
+            x := { "name" => "Calibri", "sz" => 11, "b" => .F., "i" => .F., "u" => .F., "s" => .F., "color" => "" }
+         ENDIF
+         IF nKind != 1
+            AAdd( aFonts, x )
+         ENDIF
+      CASE x == NIL .OR. nKind == 2
+      CASE cTag == "b" .OR. cTag == "i" .OR. cTag == "strike"
+         x[ IIF( cTag == "strike", "s", cTag ) ] := _XBool( _XAttrs( cA ), "val", .T. )
+      CASE cTag == "u"
+         x[ "u" ] := !( Lower( hb_HGetDef( _XAttrs( cA ), "val", "single" ) ) == "none" )
+      CASE cTag == "sz"
+         x[ "sz" ] := Val( hb_HGetDef( _XAttrs( cA ), "val", "11" ) )
+      CASE cTag == "name"
+         x[ "name" ] := hb_HGetDef( _XAttrs( cA ), "val", "Calibri" )
+      CASE cTag == "color"
+         x[ "color" ] := _XColor( _XAttrs( cA ), aTheme, aIdx )
+      ENDCASE
+   CASE cSec == "fills"
+      DO CASE
+      CASE cTag == "fill"
+         IF nKind != 2
+            x := { "type" => "none", "fg" => "", "bg" => "" }
+         ENDIF
+         IF nKind != 1
+            AAdd( aFills, x )
+         ENDIF
+      CASE x == NIL .OR. nKind == 2
+      CASE cTag == "patternFill"
+         x[ "type" ] := hb_HGetDef( _XAttrs( cA ), "patternType", "none" )
+      CASE cTag == "gradientFill"            // prelaz: uzima se prva boja kao puna
+         x[ "type" ] := "gradient"
+      CASE cTag == "fgColor" .OR. ( cTag == "color" .AND. x[ "type" ] == "gradient" .AND. Empty( x[ "fg" ] ) )
+         x[ "fg" ] := _XColor( _XAttrs( cA ), aTheme, aIdx )
+      CASE cTag == "bgColor"
+         x[ "bg" ] := _XColor( _XAttrs( cA ), aTheme, aIdx )
+      ENDCASE
+   CASE cSec == "borders"
+      DO CASE
+      CASE cTag == "border"
+         IF nKind != 2
+            x := { "left" => { 0, "" }, "right" => { 0, "" }, "top" => { 0, "" }, "bottom" => { 0, "" }, "diagonal" => { 0, "" } }
+         ENDIF
+         IF nKind != 1
+            AAdd( aBorders, x )
+         ENDIF
+      CASE x == NIL
+      CASE cTag == "left" .OR. cTag == "right" .OR. cTag == "top" .OR. cTag == "bottom" .OR. ;
+           cTag == "diagonal" .OR. cTag == "start" .OR. cTag == "end"
+         IF nKind == 2
+            cSide := ""
+         ELSE
+            cSide := IIF( cTag == "start", "left", IIF( cTag == "end", "right", cTag ) )
+            x[ cSide ][ 1 ] := _AScanX( aBordersStyle, hb_HGetDef( _XAttrs( cA ), "style", "" ) )
+            IF nKind == 3
+               cSide := ""
+            ENDIF
+         ENDIF
+      CASE cTag == "color" .AND. ! Empty( cSide ) .AND. nKind != 2
+         x[ cSide ][ 2 ] := _XColor( _XAttrs( cA ), aTheme, aIdx )
+      ENDCASE
+   CASE cSec == "cellXfs"
+      DO CASE
+      CASE cTag == "xf"
+         IF nKind != 2
+            h := _XAttrs( cA )
+            x := { "numFmtId" => Val( hb_HGetDef( h, "numFmtId", "0" ) ), "fontId" => Val( hb_HGetDef( h, "fontId", "0" ) ), ;
+                   "fillId" => Val( hb_HGetDef( h, "fillId", "0" ) ), "borderId" => Val( hb_HGetDef( h, "borderId", "0" ) ), ;
+                   "ha" => 0, "va" => 0, "rot" => 0, "wrap" => .F. }
+         ENDIF
+         IF nKind != 1 .AND. x != NIL
+            nId := x[ "numFmtId" ]
+            AAdd( aKinds, IIF( hb_HHasKey( hFmt, nId ), _FmtKind( hFmt[ nId ] ), _BuiltinFmtKind( nId ) ) )
+            AAdd( aMap, _MapStyle( oWB, x, aFonts, aFills, aBorders, hFmt ) )
+         ENDIF
+      CASE cTag == "alignment" .AND. x != NIL .AND. nKind != 2
+         h := _XAttrs( cA )
+         x[ "ha" ]   := hb_HGetDef( { "left" => 1, "center" => 2, "centerContinuous" => 2, "right" => 3 }, hb_HGetDef( h, "horizontal", "" ), 0 )
+         x[ "va" ]   := hb_HGetDef( { "top" => 1, "center" => 2 }, hb_HGetDef( h, "vertical", "" ), 0 )
+         x[ "rot" ]  := Val( hb_HGetDef( h, "textRotation", "0" ) )
+         x[ "wrap" ] := _XBool( h, "wrapText" )
+      ENDCASE
+   ENDCASE
+NEXT
+RETURN { aKinds, aMap }
+
+// stil iz fajla (xf) -> broj stila ovog workbook-a (0 = podrazumevani izgled)
+STATIC FUNCTION _MapStyle( oWB, x, aFonts, aFills, aBorders, hFmt )
+LOCAL f, fi, b, nFont, nFill, nBorder, nFmt, nPat, nId := x[ "numFmtId" ], c, i, aC := {}
+LOCAL aSide := { "left", "right", "top", "bottom", "diagonal" }
+IF x[ "fontId" ] + 1 <= LEN( aFonts )
+   f := aFonts[ x[ "fontId" ] + 1 ]
+   c := IIF( Empty( f[ "color" ] ) .OR. f[ "color" ] == "FF000000", "000000", f[ "color" ] )
+   nFont := oWB:NewFont( f[ "name" ], f[ "sz" ], f[ "b" ], f[ "i" ], f[ "u" ], f[ "s" ], c )
+   IF nFont == 1                                  // isto sto i podrazumevani font
+      nFont := NIL
+   ENDIF
+ENDIF
+IF x[ "fillId" ] + 1 <= LEN( aFills )
+   fi := aFills[ x[ "fillId" ] + 1 ]
+   nPat := IIF( fi[ "type" ] == "gradient", 1, _AScanX( aPattern, fi[ "type" ] ) )
+   IF nPat > 0
+      nFill := oWB:NewFillPattern( nPat, IIF( Empty( fi[ "fg" ] ), "FF000000", fi[ "fg" ] ), ;
+                                         IIF( Empty( fi[ "bg" ] ), "FFFFFFFF", fi[ "bg" ] ) )
+   ENDIF
+ENDIF
+IF x[ "borderId" ] + 1 <= LEN( aBorders )
+   b := aBorders[ x[ "borderId" ] + 1 ]
+   IF AScan( aSide, {| s | b[ s ][ 1 ] > 0 } ) > 0
+      FOR i := 1 TO 5
+         c := b[ aSide[ i ] ][ 2 ]
+         AAdd( aC, IIF( Empty( c ) .OR. c == "FF000000", NIL, c ) )
+      NEXT
+      nBorder := oWB:NewBorder( b[ "left" ][ 1 ], b[ "right" ][ 1 ], b[ "top" ][ 1 ], b[ "bottom" ][ 1 ], b[ "diagonal" ][ 1 ], ;
+                                aC[ 1 ], aC[ 2 ], aC[ 3 ], aC[ 4 ], aC[ 5 ] )
+   ENDIF
+ENDIF
+IF hb_HHasKey( hFmt, nId )
+   nFmt := oWB:NewFormat( hFmt[ nId ], .T. )
+ELSEIF nId > 0
+   nFmt := -nId                                   // ugradjeni format
+ENDIF
+IF nFont == NIL .AND. nFill == NIL .AND. nBorder == NIL .AND. nFmt == NIL .AND. ;
+   x[ "ha" ] == 0 .AND. x[ "va" ] == 0 .AND. x[ "rot" ] == 0 .AND. ! x[ "wrap" ]
+   RETURN 0
+ENDIF
+RETURN oWB:NewStyle( nFont, nBorder, nFill, IIF( x[ "va" ] > 0, x[ "va" ], NIL ), IIF( x[ "ha" ] > 0, x[ "ha" ], NIL ), ;
+                     nFmt, IIF( x[ "rot" ] > 0, x[ "rot" ], NIL ), IIF( x[ "wrap" ], .T., NIL ) )
+
+// boja iz atributa (rgb / theme + tint / indexed / auto) -> ARGB, "" = nije zadata
+STATIC FUNCTION _XColor( h, aTheme, aIdx )
+LOCAL c := "", n
+DO CASE
+CASE hb_HHasKey( h, "rgb" )
+   c := Right( _ARGB( h[ "rgb" ] ), 6 )
+CASE hb_HHasKey( h, "theme" )
+   n := Val( h[ "theme" ] ) + 1
+   c := IIF( n >= 1 .AND. n <= LEN( aTheme ), aTheme[ n ], "000000" )
+CASE hb_HHasKey( h, "indexed" )
+   n := Val( h[ "indexed" ] ) + 1
+   c := IIF( n >= 1 .AND. n <= LEN( aIdx ), aIdx[ n ], IIF( n == 66, "FFFFFF", "000000" ) )   // 64 tekst, 65 pozadina
+CASE hb_HHasKey( h, "auto" )
+   c := "000000"
+ENDCASE
+IF Empty( c )
+   RETURN ""
+ENDIF
+IF hb_HHasKey( h, "tint" ) .AND. Val( h[ "tint" ] ) != 0
+   c := _Tint( c, Val( h[ "tint" ] ) )
+ENDIF
+RETURN "FF" + Upper( c )
+
+// Excel "tint": posvetljavanje (> 0) ili potamnjivanje (< 0) boje preko HSL
+STATIC FUNCTION _Tint( c, nTint )
+LOCAL r := hb_HexToNum( SubStr( c, 1, 2 ) ) / 255, g := hb_HexToNum( SubStr( c, 3, 2 ) ) / 255
+LOCAL b := hb_HexToNum( SubStr( c, 5, 2 ) ) / 255, nMax, nMin, h := 0, s := 0, l, d, p, q
+nMax := Max( r, Max( g, b ) )
+nMin := Min( r, Min( g, b ) )
+l := ( nMax + nMin ) / 2
+IF nMax != nMin
+   d := nMax - nMin
+   s := IIF( l > 0.5, d / ( 2 - nMax - nMin ), d / ( nMax + nMin ) )
+   DO CASE
+   CASE nMax == r ; h := ( g - b ) / d + IIF( g < b, 6, 0 )
+   CASE nMax == g ; h := ( b - r ) / d + 2
+   OTHERWISE      ; h := ( r - g ) / d + 4
+   ENDCASE
+   h := h / 6
+ENDIF
+l := IIF( nTint < 0, l * ( 1 + nTint ), l * ( 1 - nTint ) + nTint )
+IF s == 0
+   r := g := b := l
+ELSE
+   q := IIF( l < 0.5, l * ( 1 + s ), l + s - l * s )
+   p := 2 * l - q
+   r := _Hue( p, q, h + 1 / 3 )
+   g := _Hue( p, q, h )
+   b := _Hue( p, q, h - 1 / 3 )
+ENDIF
+RETURN _Hex2( r ) + _Hex2( g ) + _Hex2( b )
+
+STATIC FUNCTION _Hue( p, q, t )
+IF t < 0
+   t += 1
+ENDIF
+IF t > 1
+   t -= 1
+ENDIF
+DO CASE
+CASE t < 1 / 6 ; RETURN p + ( q - p ) * 6 * t
+CASE t < 1 / 2 ; RETURN q
+CASE t < 2 / 3 ; RETURN p + ( q - p ) * ( 2 / 3 - t ) * 6
+ENDCASE
+RETURN p
+
+STATIC FUNCTION _Hex2( x )
+RETURN hb_NumToHex( Int( Max( 0, Min( 255, Round( x * 255, 0 ) ) ) ), 2 )
+
+// boje teme po indeksu iz styles.xml: lt1, dk1, lt2, dk2, accent1..6, hlink, folHlink
+// (bez theme1.xml vazi Office tema)
+STATIC FUNCTION _ThemeColors( cFile )
+LOCAL a := { "FFFFFF", "000000", "E7E6E6", "44546A", "4472C4", "ED7D31", "A5A5A5", "FFC000", "5B9BD5", "70AD47", "0563C1", "954F72" }
+LOCAL hPos := { "lt1" => 1, "dk1" => 2, "lt2" => 3, "dk2" => 4, "accent1" => 5, "accent2" => 6, "accent3" => 7, ;
+                "accent4" => 8, "accent5" => 9, "accent6" => 10, "hlink" => 11, "folHlink" => 12 }
+LOCAL cTok, cA, cTag, nKind, h, n := 0, lIn := .F., lDone := .F.
 FOR EACH cTok IN _XTokens( cFile )
    cA := _XTok( cTok, @cTag, @nKind )
    DO CASE
-   CASE cTag == "numFmt" .AND. nKind != 2
+   CASE cTag == "clrScheme"
+      IF nKind == 1 .AND. ! lDone
+         lIn := .T.
+      ELSEIF nKind == 2 .AND. lIn
+         lIn := .F.
+         lDone := .T.
+      ENDIF
+   CASE ! lIn
+   CASE hb_HHasKey( hPos, cTag ) .AND. nKind == 1
+      n := hPos[ cTag ]
+   CASE n > 0 .AND. nKind != 2 .AND. ( cTag == "srgbClr" .OR. cTag == "sysClr" )
       h := _XAttrs( cA )
-      hFmt[ Val( hb_HGetDef( h, "numFmtId", "0" ) ) ] := hb_HGetDef( h, "formatCode", "" )
-   CASE cTag == "cellXfs"
-      lXfs := ( nKind == 1 )
-   CASE cTag == "xf" .AND. lXfs .AND. nKind != 2
-      nId := Val( hb_HGetDef( _XAttrs( cA ), "numFmtId", "0" ) )
-      AAdd( aKinds, IIF( hb_HHasKey( hFmt, nId ), _FmtKind( hFmt[ nId ] ), _BuiltinFmtKind( nId ) ) )
+      a[ n ] := Upper( hb_HGetDef( h, IIF( cTag == "srgbClr", "val", "lastClr" ), a[ n ] ) )
+      n := 0
    ENDCASE
 NEXT
-RETURN aKinds
+RETURN a
+
+// podrazumevana Excel paleta indeksiranih boja (0-63)
+STATIC FUNCTION _Palette()
+RETURN { "000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF", ;
+         "000000", "FFFFFF", "FF0000", "00FF00", "0000FF", "FFFF00", "FF00FF", "00FFFF", ;
+         "800000", "008000", "000080", "808000", "800080", "008080", "C0C0C0", "808080", ;
+         "9999FF", "993366", "FFFFCC", "CCFFFF", "660066", "FF8080", "0066CC", "CCCCFF", ;
+         "000080", "FF00FF", "FFFF00", "00FFFF", "800080", "800000", "008080", "0000FF", ;
+         "00CCFF", "CCFFFF", "CCFFCC", "FFFF99", "99CCFF", "FF99CC", "CC99FF", "FFCC99", ;
+         "3366FF", "33CCCC", "99CC00", "FFCC00", "FF9900", "FF6600", "666699", "969696", ;
+         "003366", "339966", "003300", "333300", "993300", "993366", "333399", "333333" }
+
+// atribut kao logicka vrednost ("1"/"true"); lDef ako atributa nema
+STATIC FUNCTION _XBool( h, cKey, lDef )
+LOCAL c
+IF ! hb_HHasKey( h, cKey )
+   RETURN IIF( HB_ISLOGICAL( lDef ), lDef, .F. )
+ENDIF
+c := Lower( h[ cKey ] )
+RETURN c == "1" .OR. c == "true"
+
+// zaglavlje/podnozje: usamljen "&" (npr. "Procter & Gamble") Excel tumaci kao kod i
+// brise ga, pa se udvaja; kodovi &P &N &D &T &F &A &B &I &U &"Font" &12 ... ostaju
+STATIC FUNCTION _HFEsc( c )
+LOCAL cOut := "", i := 1, ch, ch2
+DO WHILE i <= Len( c )
+   ch := SubStr( c, i, 1 )
+   IF ch == "&"
+      ch2 := SubStr( c, i + 1, 1 )
+      IF ! ch2 == "" .AND. ch2 $ 'PNDTFAZGLCRBIUSXYEOHK&"+-0123456789'
+         cOut += ch + ch2
+         i += 2
+      ELSE
+         cOut += "&&"
+         i++
+      ENDIF
+      LOOP
+   ENDIF
+   cOut += ch
+   i++
+ENDDO
+RETURN cOut
+
+// zaglavlje/podnozje "&LLevo&CSredina&RDesno" -> { levo, sredina, desno };
+// ostali kodovi (&P, &N, &D, &&, &"Arial,Bold"...) ostaju u tekstu
+STATIC FUNCTION _HFParts( c )
+LOCAL a := { "", "", "" }, n := 2, i := 1, ch, ch2
+DO WHILE i <= Len( c )
+   ch := SubStr( c, i, 1 )
+   IF ch == "&" .AND. i < Len( c )
+      ch2 := SubStr( c, i + 1, 1 )
+      DO CASE
+      CASE ch2 == "L" ; n := 1
+      CASE ch2 == "C" ; n := 2
+      CASE ch2 == "R" ; n := 3
+      OTHERWISE       ; a[ n ] += ch + ch2
+      ENDCASE
+      i += 2
+      LOOP
+   ENDIF
+   a[ n ] += ch
+   i++
+ENDDO
+RETURN a
+
+// kod ugradjenog formata broja (ECMA-376 18.8.30)
+STATIC FUNCTION _BuiltinFmtCode( n )
+STATIC s_h
+IF s_h == NIL
+   s_h := { 0 => "General", 1 => "0", 2 => "0.00", 3 => "#,##0", 4 => "#,##0.00", 9 => "0%", 10 => "0.00%", ;
+            11 => "0.00E+00", 12 => "# ?/?", 13 => "# ??/??", 14 => "mm-dd-yy", 15 => "d-mmm-yy", 16 => "d-mmm", ;
+            17 => "mmm-yy", 18 => "h:mm AM/PM", 19 => "h:mm:ss AM/PM", 20 => "h:mm", 21 => "h:mm:ss", ;
+            22 => "m/d/yy h:mm", 37 => "#,##0 ;(#,##0)", 38 => "#,##0 ;[Red](#,##0)", 39 => "#,##0.00;(#,##0.00)", ;
+            40 => "#,##0.00;[Red](#,##0.00)", 45 => "mm:ss", 46 => "[h]:mm:ss", 47 => "mmss.0", 48 => "##0.0E+0", 49 => "@" }
+ENDIF
+RETURN hb_HGetDef( s_h, n, "General" )
 
 // ugradjeni formati (ECMA-376 18.8.30); 27-36 i 50-58 su istocnoazijski datumi
 STATIC FUNCTION _BuiltinFmtKind( n )

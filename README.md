@@ -14,7 +14,9 @@ Everything is in one source file: `XLSXClass.prg`.
 - Page setup: paper size, orientation, margins, fit to page width, header and footer
 - Pictures (PNG, JPG, GIF, BMP, EMF, WMF)
 - Charts: column, horizontal bar, line and pie
-- Reading existing `.xlsx` files: values, dates, formulas, ranges, merged cells
+- Reading existing `.xlsx` files: values, dates, formulas, ranges, merged cells and formatting
+  (fonts, colors, borders, number formats, column widths, row heights, page setup),
+  so a file can be read, changed and saved again
 
 ## Building
 
@@ -128,7 +130,7 @@ oSheet:Cell( "A6", "Up", nRot )
 |---|---|
 | alignment (`nVertAlign`, `nHorzAlign`) | 1 left / top, 2 center, 3 right / bottom |
 | border style | 1 thin, 2 medium, 3 thick, 4 double, 5 dashed, 6 dotted, 7 hair, 8 mediumDashed, 9 dashDot, 10 mediumDashDot, 11 dashDotDot, 12 mediumDashDotDot, 13 slantDashDot |
-| fill pattern | 1 solid, 2 horzStripe, 3 vertStripe, 4 reverseDiagStripe, 5 diagStripe, 6 horzCross, 7 diagCross, 8–13 thin variants |
+| fill pattern | 1 solid, 2 darkHorizontal, 3 darkVertical, 4 darkDown, 5 darkUp, 6 darkGrid, 7 darkTrellis, 8 lightHorizontal, 9 lightVertical, 10 lightDown, 11 lightUp, 12 lightGrid, 13 lightTrellis, 14 mediumGray, 15 darkGray, 16 lightGray, 17 gray125, 18 gray0625 |
 | colors | ARGB hex, e.g. `"FFFF0000"` (red) |
 
 ### Number and date formats
@@ -153,6 +155,7 @@ An empty date (`CToD( "" )`) is written as an empty cell.
 ```harbour
 oSheet:ColumnsWidth( 1, 1, 30 )       // column A
 oSheet:ColumnsWidth( 2, 5, 12 )       // columns B..E
+oSheet:ColumnsWidth( 8, 8, 10, .T. )  // hide column H
 // RowDetail( nRow, nHeight, nStyle, lHide )
 oSheet:RowDetail( 1, 28 )             // height of row 1
 oSheet:RowDetail( 7, , , .T. )        // hide row 7
@@ -174,6 +177,7 @@ oSheet:bottomMargin := 0.75
 
 // AddHeader( cLeft, cCenter, cRight ), AddFooter( cLeft, cCenter, cRight )
 // &P page, &N number of pages, &D date, &T time, &F file name, &A sheet name
+// (a single & in the text, e.g. "Procter & Gamble", is written correctly)
 oSheet:AddHeader( "My Company", "&A", "&D" )
 oSheet:AddFooter( "&F", "", "Page &P of &N" )
 
@@ -290,6 +294,39 @@ aAll := oSheet:ToArray()                  // A1 .. LastRow() / LastCol()
 - Text is returned in UTF-8; for another codepage use e.g. `hb_Translate( x, "UTF8", "HRWIN" )`.
 - Rich text, inline strings, error values (`"#DIV/0!"`) and the 1904 date system (Excel for Mac) are handled.
 - A formula without a saved result (e.g. a file created by this class) is returned by `Cell()` as text: `"=A1*B1"`.
+
+### Formatting of a read file
+
+`Read()` also reads the formatting: fonts, colors (also theme and indexed colors), fills, borders,
+number formats, alignment, column widths and hidden columns, row heights and hidden rows, margins,
+paper, orientation, header and footer. A file can be read, changed and saved with the same look:
+
+```harbour
+oExcel := WorkBook():New()
+oExcel:Read( "invoice.xlsx" )
+oSheet := oExcel:GetSheet( 1 )
+oSheet:Cell( "B10", 1250 )              // new value, the cell keeps its format
+oExcel:cName := "invoice_new.xlsx"      // save under another name
+oExcel:Save()
+```
+
+The style of a cell can be read and set:
+
+```harbour
+nStyle := oSheet:CellStyle( "B3" )      // 0 = no style
+h := oExcel:StyleInfo( nStyle )
+? h[ "font" ], h[ "size" ], h[ "bold" ], h[ "color" ]   // Calibri  11  .T.  FFFF0000
+? h[ "fill" ], h[ "numformat" ], h[ "halign" ]         // FFFFFF99  #,##0.00  center
+? h[ "border" ][ "bottom" ], h[ "bordercolor" ][ "bottom" ]   // thin  FF000000
+
+oSheet:CellStyle( "D3", nStyle )        // same style on another cell (also an empty one)
+```
+
+`StyleInfo()` keys: `font, size, bold, italic, underline, strike, color, fill, pattern, border, bordercolor,
+numformat, halign, valign, rotation, wrap`. Colors are ARGB strings, `""` means none.
+
+Not kept on save: pictures and charts of the read file, comments, conditional formatting,
+data validation, frozen panes; a gradient fill becomes a solid fill.
 
 ## Samples
 
