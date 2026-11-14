@@ -1,6 +1,12 @@
-Two examples of how to create and how to read the .xlsx format.  
-Currently excel gives a warning when opening some files but after confirmation it looks the same as in libreoffice Calc.  
-create examples:   
-hbmk2 xlsxwriter.hbp  
-hbmk2 xlsxreader.hbp  
+Samples for XLSXClass.prg
 
+  XLSXWriter.prg  - values of all types, styles, header/footer, merged cells, a picture, two sheets -> sample.xlsx
+  XLSXReader.prg  - reads values from sample.xlsx (run xlsxwriter first)
+  XLSXReport.prg  - printable report: formats, totals with formulas, page setup -> report.xlsx
+  XLSXChart.prg   - column, line, horizontal bar and pie charts -> charts.xlsx
+
+Build:
+  hbmk2 xlsxwriter.hbp
+  hbmk2 xlsxreader.hbp
+  hbmk2 xlsxreport.hbp
+  hbmk2 xlsxchart.hbp

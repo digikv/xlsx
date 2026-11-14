@@ -52,11 +52,11 @@ oSheet1:AddHeader( "", "Kosovo is Serbia", "" )
 oSheet1:AddFooter( "Novus Ordo Mundi-BRICS", "", "&P of &N" ) 
 oSheet1:Cell("A1", 3 )
 oSheet1:Cell("B1", 2 )
-oSheet1:Cell("C1", "=A1*B1" )
+oSheet1:Formula("C1", "=A1*B1" )
 
 oSheet1:Cell("A12", 3, nStyle6 )
 oSheet1:Cell("B12", 2, nStyle6 )
-oSheet1:Cell("C12", "=A1*B1", nStyle6 )
+oSheet1:Formula("C12", "=A1*B1", nStyle6 )
 
 oSheet1:Cell("A3", .T. )
 oSheet1:Cell("D5", HB_CTOD("01.08.1998","dd.mm.yyyy") )
@@ -93,4 +93,4 @@ oDrawing:TwoCellAnchor( "I6", "K9", cPicturePath )
 
 oExcel:Save()
 
-Return
+Return

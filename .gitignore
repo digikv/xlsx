@@ -1,0 +1,11 @@
+# build output
+*.exe
+*.o
+*.obj
+*.ppo
+*.log
+.hbmk/
+# files created by the samples
+*.xlsx
+# Dropbox / Windows
+desktop.ini
