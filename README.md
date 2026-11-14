@@ -18,10 +18,10 @@ Everything is in one source file: `XLSXClass.prg`.
 
 ## Building
 
-Add `XLSXClass.prg` to your project and link the `xhb`, `hbziparc` and `hbmxml` contribs:
+Add `XLSXClass.prg` to your project and link the `hbziparc` contrib (Harbour 3.2):
 
 ```
-hbmk2 myapp.prg XLSXClass.prg xhb.hbc hbziparc.hbc hbmxml.hbc
+hbmk2 myapp.prg XLSXClass.prg hbziparc.hbc
 ```
 
 The `samples` folder has ready-made `.hbp` files:
@@ -51,6 +51,7 @@ PROCEDURE Main()
    oSheet:Cell( "A1", "Hello world" )      // text
    oSheet:Cell( "B1", 1234.56 )            // number
    oSheet:Cell( "C1", Date() )             // date (gets a date format automatically)
+   oSheet:Cell( "C2", hb_DateTime() )      // date and time
    oSheet:Cell( "D1", .T. )                // logical
    oSheet:Formula( "E1", "B1*2" )          // formula
 
@@ -152,7 +153,9 @@ An empty date (`CToD( "" )`) is written as an empty cell.
 ```harbour
 oSheet:ColumnsWidth( 1, 1, 30 )       // column A
 oSheet:ColumnsWidth( 2, 5, 12 )       // columns B..E
+// RowDetail( nRow, nHeight, nStyle, lHide )
 oSheet:RowDetail( 1, 28 )             // height of row 1
+oSheet:RowDetail( 7, , , .T. )        // hide row 7
 
 oSheet:MergeCell( "A10:E10" )         // call MergeCell() before Cell(),
 oSheet:Cell( "A10", "Merged title", nHead )   // the style is applied to the whole range
@@ -173,12 +176,16 @@ oSheet:bottomMargin := 0.75
 // &P page, &N number of pages, &D date, &T time, &F file name, &A sheet name
 oSheet:AddHeader( "My Company", "&A", "&D" )
 oSheet:AddFooter( "&F", "", "Page &P of &N" )
+
+oSheet:nTitlesRows := 3       // rows 1..3 are repeated at the top of every printed page
 ```
 
 ### Several sheets
 
 `WorkSheet( cName )` creates the sheet the first time and returns the same object later.
 `GetSheet( cName )` returns an existing sheet or `NIL`.
+Like in Excel, sheet names are not case sensitive, characters `: \ / ? * [ ]` are replaced with `_`
+and a name is cut to 31 characters.
 
 ```harbour
 oData    := oExcel:WorkSheet( "Data" )
@@ -192,7 +199,12 @@ oSummary:Formula( "A1", "SUM(Data!B2:B100)" )
 oDrawing := oSheet:Drawing( "logo" )
 // TwoCellAnchor( cFromCell, cToCell, cPath ): the picture fills C3..E8
 oDrawing:TwoCellAnchor( "C3", "E8", hb_cwd() + "logo.png" )
+
+// OneCellAnchor( cCell, nWidth, nHeight, cPath ): fixed size in EMU (1 pixel = 9525, 1 cm = 360000)
+oSheet:Drawing( "stamp" ):OneCellAnchor( "G3", 200 * 9525, 80 * 9525, hb_cwd() + "stamp.png" )
 ```
+
+Cells can also be given as `{ nRow, nCol }`.
 
 ### Charts
 

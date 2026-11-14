@@ -2,19 +2,19 @@
  *
  * XLSX writer/reader Class - Pure Harbour 
  *
- * Copyright 2018 - 2025 Srđan Dragojlović <digikv@yahoo.com>
+ * Copyright 2018 - 2026 Srđan Dragojlović <digikv@yahoo.com>
  * Company  S.O.K. doo Kraljevo
- * www - http://www.sokdoo.com
+ * www - https://sokdoo.com
 */
 
 #require "hbmzip"
 #include "simpleio.ch"
 #INCLUDE "hbclass.ch"
-#include "hbxml.ch"
+
 
 REQUEST HB_CODEPAGE_UTF8EX
 
-STATIC aStdNumFormats := { "0" => -1, "0.00" => -2, "#,##0" => -3, "#,##0.00" => -4, "0%" => -9,  "0.00%" => -10, "0.00E+00" => -11, "# ?/?" => -12, "# ??/??" => -13, "m/d/yyyy" => -14, "dd.mm.yyyy" => -14, "dd/mm/yyyy" => -14, "d-mmm-yy" => -15, "d-mmm" => -16, "mmm-yy" => -17, "h:mm AM/PM" => -18, "h:mm:ss AM/PM" => -19, "h:mm" => -20, "h:mm:ss" => -21, "m/d/yyyy h:mm" => -22, "#,##0 ;(#,##0)" => -37, "#,##0 ;Red" => -38, "#,##0.00 ;(#,##0.00)" => -39, "#,##0.00 ;Red" => -40, "mm:ss" => -45, "[h]:mm:ss" => -46, "mm:ss.0" => -47, "##0.00E+0" => -48, "@"  => -49 }
+STATIC aStdNumFormats := { "0" => -1, "0.00" => -2, "#,##0" => -3, "#,##0.00" => -4, "0%" => -9,  "0.00%" => -10, "0.00E+00" => -11, "# ?/?" => -12, "# ??/??" => -13, "m/d/yyyy" => -14, "dd.mm.yyyy" => -14, "dd/mm/yyyy" => -14, "d-mmm-yy" => -15, "d-mmm" => -16, "mmm-yy" => -17, "h:mm AM/PM" => -18, "h:mm:ss AM/PM" => -19, "h:mm" => -20, "h:mm:ss" => -21, "m/d/yyyy h:mm" => -22, "#,##0 ;(#,##0)" => -37, "#,##0 ;Red" => -38, "#,##0.00 ;(#,##0.00)" => -39, "#,##0.00 ;Red" => -40, "#,##0 ;[Red](#,##0)" => -38, "#,##0.00;(#,##0.00)" => -39, "#,##0.00;[Red](#,##0.00)" => -40, "mm:ss" => -45, "[h]:mm:ss" => -46, "mm:ss.0" => -47, "##0.00E+0" => -48, "@"  => -49 }
 STATIC aHorizontal := {"left","center","right"}
 STATIC aVertical := {"top","center","bottom"}
 STATIC aBordersStyle := { "thin", "medium", "thick", "double", "dashed", "dotted", "hair", "mediumDashed", "dashDot", "mediumDashDot", "dashDotDot", "mediumDashDotDot", "slantDashDot" }
@@ -56,7 +56,7 @@ DATA lDate1904 INIT .F.           // Read(): fajl koristi 1904 sistem datuma (Ex
 METHOD NewFont( cFont, nFontSize, lBold, lItalic, lUnderline, lStrike, cRGB )
 METHOD NewFillPattern( nFillPattern, cFG, cBG )
 METHOD NewBorder( nTL, nTR, nTT, nTB, nTD, cCL, cCR, cCT, cCB, cCD  )
-METHOD NewStyle( nFont, nBorder, nFill, nVA, nHA, nRotation, lWrap )
+METHOD NewStyle( nFont, nBorder, nFill, nVA, nHA, nFormat, nRotation, lWrap )
 METHOD NewFormat( cFormat )
 METHOD New(cName)
 METHOD WorkSheet(cName)
@@ -82,7 +82,10 @@ LOCAL aSST := {}, aKinds, hRels := { => }, aSheets := {}
       ::cError := "Fajl ne postoji: " + hb_CStr( cName )
       RETURN .F.
    ENDIF
-   ::cName := cName
+   // isto kao New(): putanja i ime posebno (ranije Read() pa Save() je spajao
+   // tekuci folder sa punom putanjom)
+   ::cFilePath := iif( FilePath(cName)=="", DiskName() + hb_OSDriveSeparator() + hb_PS() + CurDir() + hb_PS() , FilePath(cName) )
+   ::cName := iif( AT(::cFilePath,cName)>0, SUBSTR(cName,LEN(::cFilePath)+1), cName )
    IF ! HB_ISHASH( ::hSharedStrings )
       ::hSharedStrings := { => }
    ENDIF
@@ -111,7 +114,7 @@ LOCAL aSST := {}, aKinds, hRels := { => }, aSheets := {}
 
    // deljeni stringovi; rich text (vise <r><t>) se spaja, fonetski <rPh> se preskace
    FOR EACH cTok IN _XTokens( cXL + "sharedStrings.xml" )
-      cA := _XTok( cTok, @cTag, @nKind, @cText )
+      _XTok( cTok, @cTag, @nKind, @cText )
       DO CASE
       CASE cTag == "si"
          IF nKind == 1
@@ -189,7 +192,7 @@ LOCAL n
 IF HB_ISNUMERIC( cName )
    RETURN IIF( cName >= 1 .AND. cName <= LEN( ::aWorkSheetObjects ), ::aWorkSheetObjects[ cName ], NIL )
 ENDIF
-n := _AScanX( ::aWorkSheetNames, cName )
+n := _SheetPos( ::aWorkSheetNames, _SheetName( cName ) )
 RETURN IIF( n > 0, ::aWorkSheetObjects[ n ], NIL )
 
 // imena svih sheet-ova, redom
@@ -197,7 +200,7 @@ METHOD SheetNames() CLASS WorkBook
 RETURN AClone( ::aWorkSheetNames )
 
 METHOD NewFillPattern( nFillPattern, cFG, cBG ) CLASS WorkBook
-LOCAL nPos := 0, c:= ""
+LOCAL nPos := 0, c
 IF HB_ISNUMERIC(nFillPattern) .AND. nFillPattern>0 .AND. nFillPattern<14 .AND. HB_ISSTRING( cBG ) .AND. HB_ISSTRING( cFG )
 	c := HB_NTOC(nFillPattern,0)+","+cFG+","+cBG
 	IF (nPos:=_AScanX( ::aWorkbookFills, c ) )==0
@@ -208,7 +211,7 @@ ENDIF
 Return nPos
 
 METHOD NewBorder( nTL, nTR, nTT, nTB, nTD, cCL, cCR, cCT, cCB, cCD  ) CLASS WorkBook
-LOCAL nPos := 0
+LOCAL nPos
 LOCAL c := ""
 c += IIF( (HB_ISNUMERIC(nTL) .AND. nTL>0 .AND. nTL<14), HB_NTOC(nTL,0)+IIF( (!HB_ISNIL(cCL) .AND. HB_ISSTRING( cCL )), ","+cCL+",", ",000000," ),"0,000000," )
 c += IIF( (HB_ISNUMERIC(nTR) .AND. nTR>0 .AND. nTR<14), HB_NTOC(nTR,0)+IIF( (!HB_ISNIL(cCR) .AND. HB_ISSTRING( cCR )), ","+cCR+",", ",000000," ),"0,000000," )
@@ -234,7 +237,7 @@ ENDIF
 Return nPos
 
 METHOD NewFont( cFont, nFontSize, lBold, lItalic, lUnderline, lStrike, cRGB ) CLASS WorkBook
-Local nPos := 0
+Local nPos
 cFont := iif( HB_ISNIL( cFont ), "Calibri", cFont )
 cFont += ","+iif( HB_ISNIL( nFontSize ) .OR. !HB_ISNUMERIC( nFontSize ), "11", HB_NTOC(nFontSize,0) )
 cFont += ","+iif( HB_ISNIL( lBold ) .OR. !HB_ISLOGICAL( lBold ), "0", iif(lBold,"1","0") )
@@ -249,7 +252,7 @@ ENDIF
 Return nPos
 
 METHOD NewStyle( nFont, nBorder, nFill, nVA, nHA, nFormat, nRotation, lWrap ) CLASS WorkBook
-Local nPos := 0, c := ""
+Local nPos, c
 c := iif( HB_ISNIL( nFont ) .OR. !HB_ISNUMERIC( nFont ), "0", HB_NTOC(IIF(nFont==0,1,nFont)-1,0) )
 c += ","+iif( HB_ISNIL( nBorder ) .OR. !HB_ISNUMERIC( nBorder ), "0", HB_NTOC(IIF(nBorder==0,1,nBorder)-1,0) )
 c += ","+iif( HB_ISNIL( nFill ) .OR. !HB_ISNUMERIC( nFill ), "0", HB_NTOC(IIF(nFill==0,1,nFill)-1,0) )
@@ -296,9 +299,12 @@ DO WHILE .T.
 ENDDO
 Return Self
 
+// Postojeci sheet ili novi. Ime se prilagodi pravilima Excela (bez : \ / ? * [ ],
+// najvise 31 znak), a "Podaci" i "PODACI" su isti sheet - inace Excel odbija fajl.
 METHOD WorkSheet( cName ) CLASS WorkBook
-LOCAL oWorkSheet, nPos 
-IF (nPos:=_AScanX( ::aWorkSheetNames, cName ))==0
+LOCAL oWorkSheet, nPos
+cName := _SheetName( cName )
+IF (nPos:=_SheetPos( ::aWorkSheetNames, cName ))==0
     oWorkSheet:= WorkSheet():New( cName )
 	oWorkSheet:oParent := Self
 	aADD( ::aWorkSheetNames, cName )
@@ -308,11 +314,14 @@ ENDIF
 Return ::aWorkSheetObjects[nPos]
 
 METHOD Save() CLASS WorkBook
-LOCAL n := hb_RandomInt( 1, 10000 )
 LOCAL cSep := hb_ps(), i, j, handle, c
 LOCAL cFile := ::cFilePath + ::cName, lOk
 LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-'+SUBSTR(cDate,5,2)+'-'+RIGHT(cDate,2)+'T'+LEFT(cTime,8)
    ::cError := ""
+   IF Empty( ::cName )
+      ::cError := "Nije zadato ime fajla: WorkBook():New( cFajl )"
+      RETURN .F.
+   ENDIF
    // fajl otvoren u Excelu ne moze da se obrise; ranije je Save() to precutao,
    // a pozivalac je zatim otvarao STARI fajl
    IF hb_FileExists( cFile ) .AND. FErase( cFile ) != 0
@@ -389,8 +398,8 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
    handle := FCreate( ::cTempDir+cSep+"docProps"+cSep+"app.xml" )
    FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
    FWrite( handle, '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">'+chr(10) )
-   FWrite( handle, '<Application>'+::Application+'</Application>'+chr(10) )
-   FWrite( handle, '<Company>'+::Company+'</Company>'+chr(10) )   
+   FWrite( handle, '<Application>'+XmlEsc(::ToUTF8(_S(::Application)))+'</Application>'+chr(10) )
+   FWrite( handle, '<Company>'+XmlEsc(::ToUTF8(_S(::Company)))+'</Company>'+chr(10) )
    FWrite( handle, '<Template></Template>'+chr(10) )      
    FWrite( handle, '<TotalTime>0</TotalTime>'+chr(10) )
    FWrite( handle, '</Properties>' )   
@@ -428,9 +437,7 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 	FWrite( handle, '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x15 xr xr6 xr10 xr2" xmlns:x15="http://schemas.microsoft.com/office/spreadsheetml/2010/11/main" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xmlns:xr6="http://schemas.microsoft.com/office/spreadsheetml/2016/revision6" xmlns:xr10="http://schemas.microsoft.com/office/spreadsheetml/2016/revision10" xmlns:xr2="http://schemas.microsoft.com/office/spreadsheetml/2015/revision2">'+chr(10) )
 	FWrite( handle, '<fileVersion appName="xl" lastEdited="7" lowestEdited="7" rupBuild="28429"/>'+chr(10) )
 	FWrite( handle, '<workbookPr defaultThemeVersion="166925"/>'+chr(10) )
-	FWrite( handle, '<mc:AlternateContent xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006">'+chr(10) )
-	FWrite( handle, '<mc:Choice Requires="x15"><x15ac:absPath url="C:\Dropbox\XLSX\" xmlns:x15ac="http://schemas.microsoft.com/office/spreadsheetml/2010/11/ac"/></mc:Choice>'+chr(10) )
-	FWrite( handle, '</mc:AlternateContent>'+chr(10) )
+	// (ranije je ovde u svaki fajl upisivana putanja C:\Dropbox\XLSX\ - x15ac:absPath)
 	FWrite( handle, '<xr:revisionPtr revIDLastSave="0" documentId="8_{063AD3CC-BC4D-49E0-9FE7-D121456950CA}" xr6:coauthVersionLast="47" xr6:coauthVersionMax="47" xr10:uidLastSave="{00000000-0000-0000-0000-000000000000}"/>'+chr(10) )
 	FWrite( handle, '<bookViews>'+chr(10) )
 	FWrite( handle, '<workbookView xWindow="-108" yWindow="-108" windowWidth="23256" windowHeight="12456" xr2:uid="{00000000-000D-0000-FFFF-FFFF00000000}"/>'+chr(10) )
@@ -440,11 +447,23 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 		FWrite( handle, '<sheet name="'+XmlEsc(::ToUTF8(::aWorkSheetNames[i]))+'" sheetId="'+HB_NTOS(i)+'" r:id="rId'+HB_NTOS(i)+'"/>'+chr(10) )   
 	NEXT I
 	FWrite( handle, '</sheets>'+chr(10) )
-	IF ::nTitlesRows > 0
-		FWrite( handle, '<definedNames>'+chr(10) )
-		FWrite( handle, '	<definedName name="_xlnm.Print_Titles" localSheetId="0">'+"'Sheet1'!$1:$"+HB_NTOS(::nTitlesRows)+'</definedName>'+chr(10) )
-		FWrite( handle, '</definedNames>'+chr(10) )
-	ENDIF	
+	// redovi koji se ponavljaju na vrhu svake strane: oSheet:nTitlesRows, a
+	// oWorkBook:nTitlesRows vazi za prvi sheet (ranije uvek 'Sheet1', pa nije radilo
+	// ako se prvi sheet drugacije zove)
+	c := ""
+	FOR I:=1 TO LEN( ::aWorkSheetObjects )
+		j := ::aWorkSheetObjects[i]:nTitlesRows
+		IF ! HB_ISNUMERIC( j ) .OR. j <= 0
+			j := IIF( i == 1 .AND. HB_ISNUMERIC( ::nTitlesRows ), ::nTitlesRows, 0 )
+		ENDIF
+		IF j > 0
+			c += '	<definedName name="_xlnm.Print_Titles" localSheetId="'+HB_NTOS(i-1)+'">'+ ;
+			     XmlEsc( "'" + StrTran( ::ToUTF8( ::aWorkSheetNames[i] ), "'", "''" ) + "'!$1:$" + HB_NTOS( j ) )+'</definedName>'+chr(10)
+		ENDIF
+	NEXT I
+	IF ! Empty( c )
+		FWrite( handle, '<definedNames>'+chr(10)+c+'</definedNames>'+chr(10) )
+	ENDIF
 	FWrite( handle, '<calcPr calcMode="auto" fullCalcOnLoad="1" calcId="0"/>'+chr(10) )
 	/*	
 	FWrite( handle, '<extLst>'+chr(10) )
@@ -478,23 +497,26 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 	handle := FCreate( ::cTempDir+cSep+"xl"+cSep+"styles.xml" )
 	FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
     FWrite( handle, '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac x16r2 xr" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:x16r2="http://schemas.microsoft.com/office/spreadsheetml/2015/02/main" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision">'+chr(10) )
-	FWrite( handle, '<numFmts count="'+HB_NTOS(LEN(::aNumFormat))+'">'+chr(10))
-	FOR I:=1 TO LEN( ::aNumFormat )
-		FWrite( handle, '<numFmt numFmtId="'+HB_NTOS(I+163)+'" formatCode="'+::aNumFormat[I]+'"/>'+chr(10) )
-	NEXT I
-	FWrite( handle, '</numFmts>'+chr(10))
+	IF LEN( ::aNumFormat ) > 0
+		FWrite( handle, '<numFmts count="'+HB_NTOS(LEN(::aNumFormat))+'">'+chr(10))
+		FOR I:=1 TO LEN( ::aNumFormat )
+			// XmlEsc: format kao '#,##0 "din"' ili '[<1000]0' ranije je kvario styles.xml
+			FWrite( handle, '<numFmt numFmtId="'+HB_NTOS(I+163)+'" formatCode="'+XmlEsc(::ToUTF8(::aNumFormat[I]))+'"/>'+chr(10) )
+		NEXT I
+		FWrite( handle, '</numFmts>'+chr(10))
+	ENDIF
 	FWrite( handle, '<fonts count="'+HB_NTOS(LEN(::aWorkbookFonts))+'">'+chr(10) )	
 	//FWrite( handle, '<font/>'+chr(10) )
 	FOR I:=1 TO LEN( ::aWorkbookFonts )
 	    J:= hb_ATokens( ::aWorkbookFonts[i], "," )	
 		FWrite( handle, '<font>' )		
-		FWrite( handle, '<name val="'+j[1]+'"/>' )
+		FWrite( handle, '<name val="'+XmlEsc(::ToUTF8(j[1]))+'"/>' )
 		FWrite( handle, '<sz val="'+j[2]+'"/>' )		
 		IF j[3]=="1";FWrite( handle, '<b/>' );ENDIF
 		IF j[4]=="1";FWrite( handle, '<i/>' );ENDIF
 		IF j[5]=="1";FWrite( handle, '<u/>' );ENDIF
 		IF j[6]=="1";FWrite( handle, '<strike/>' );ENDIF		
-		FWrite( handle, '<color rgb="'+j[7]+'"/>' )
+		FWrite( handle, '<color rgb="'+_ARGB(j[7])+'"/>' )
 		FWrite( handle, '</font>'+chr(10) )
 	NEXT I
 	FWrite( handle, '</fonts>'+chr(10) )		
@@ -502,7 +524,7 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 	FWrite( handle, '<fill><patternFill patternType="none"/></fill>'+chr(10)+'<fill><patternFill patternType="gray125"/></fill>'+chr(10) )	
 	FOR I:=3 TO LEN( ::aWorkbookFills )
 	    J:= hb_ATokens( ::aWorkbookFills[i], "," )
-		FWrite( handle, '<fill><patternFill patternType="'+aPattern[val(j[1])]+'"><fgColor rgb="'+j[2]+'"/><bgColor rgb="'+j[3]+'"/></patternFill></fill>'+chr(10) )
+		FWrite( handle, '<fill><patternFill patternType="'+aPattern[val(j[1])]+'"><fgColor rgb="'+_ARGB(j[2])+'"/><bgColor rgb="'+_ARGB(j[3])+'"/></patternFill></fill>'+chr(10) )
 	NEXT I
 	FWrite( handle, '</fills>'+chr(10) )		
 	FWrite( handle, '<borders count="'+HB_NTOS(LEN(::aWorkbookBorders))+'">'+chr(10) )		
@@ -510,11 +532,11 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 	FOR I:=2 TO LEN( ::aWorkbookBorders )
 	    J:= hb_ATokens( ::aWorkbookBorders[i], "," )
 		FWrite( handle, '<border>' )
-		FWrite( handle, iif(val(j[1])>0, '<left style="'+aBordersStyle[val(j[1])]+'"'+iif(j[2]!="000000", '><color rgb="'+j[2]+'"/></left>', '/>' ), '<left/>' ) )
-		FWrite( handle, iif(val(j[3])>0, '<right style="'+aBordersStyle[val(j[3])]+'"'+iif(j[4]!="000000", '><color rgb="'+j[4]+'"/></right>', '/>' ), '<right/>' ) )
-		FWrite( handle, iif(val(j[5])>0, '<top style="'+aBordersStyle[val(j[5])]+'"'+iif(j[6]!="000000", '><color rgb="'+j[6]+'"/></top>', '/>' ), '<top/>' ) )
-		FWrite( handle, iif(val(j[7])>0, '<bottom style="'+aBordersStyle[val(j[7])]+'"'+iif(j[8]!="000000", '><color rgb="'+j[8]+'"/></bottom>', '/>' ), '<bottom/>' ) )		
-		FWrite( handle, iif(val(j[9])>0, '<diagonal style="'+aBordersStyle[val(j[9])]+'"'+iif(j[10]!="000000", '><color rgb="'+j[10]+'"/></diagonal>', '/>' ), '<diagonal/>' ) )				
+		FWrite( handle, iif(val(j[1])>0, '<left style="'+aBordersStyle[val(j[1])]+'"'+iif(j[2]!="000000", '><color rgb="'+_ARGB(j[2])+'"/></left>', '/>' ), '<left/>' ) )
+		FWrite( handle, iif(val(j[3])>0, '<right style="'+aBordersStyle[val(j[3])]+'"'+iif(j[4]!="000000", '><color rgb="'+_ARGB(j[4])+'"/></right>', '/>' ), '<right/>' ) )
+		FWrite( handle, iif(val(j[5])>0, '<top style="'+aBordersStyle[val(j[5])]+'"'+iif(j[6]!="000000", '><color rgb="'+_ARGB(j[6])+'"/></top>', '/>' ), '<top/>' ) )
+		FWrite( handle, iif(val(j[7])>0, '<bottom style="'+aBordersStyle[val(j[7])]+'"'+iif(j[8]!="000000", '><color rgb="'+_ARGB(j[8])+'"/></bottom>', '/>' ), '<bottom/>' ) )
+		FWrite( handle, iif(val(j[9])>0, '<diagonal style="'+aBordersStyle[val(j[9])]+'"'+iif(j[10]!="000000", '><color rgb="'+_ARGB(j[10])+'"/></diagonal>', '/>' ), '<diagonal/>' ) )
 		FWrite( handle, '</border>'+chr(10) )
 	NEXT I
 	FWrite( handle, '</borders>'+chr(10) )		
@@ -588,8 +610,8 @@ DATA ID
 DATA editAs INIT "absolute"
 METHOD New(cName)
 METHOD OneCellAnchor( uAddr1, nSizeX, nSizeY, cPath )
-METHOD TwoCellAnchor( uAddr1, uAddr2, nSizeX, nSizeY, cPath )
-METHOD AbsoluteAnchor( uAddr1, uAddr2, nSizeX, nSizeY, cPath )
+METHOD TwoCellAnchor( uAddr1, uAddr2, cPath )
+METHOD AbsoluteAnchor( nX, nY, nSizeX, nSizeY, cPath )
 METHOD AnchorXML( nIdx )
 ENDCLASS
 
@@ -622,10 +644,15 @@ c += t+t+'<xdr:cNvPicPr/>'+nl
 c += t+'</xdr:nvPicPr>'+nl
 c += t+t+'<xdr:blipFill><a:blip r:embed="rId'+::ID+'" cstate="print" /><a:stretch/></xdr:blipFill>'+nl
 c += t+t+'<xdr:spPr>'+nl
-c += t+t+t+'<a:xfrm>'+nl
-c += t+t+t+t+'<a:off x="0" y="0"/>'+nl
-c += t+t+t+t+'<a:ext cx="1971360" cy="783720"/>'+nl
-c += t+t+t+'</a:xfrm>'+nl
+// Ranije je ovde bila zakucana velicina (1971360 x 783720 EMU) za svaku sliku, pa
+// LibreOffice nije razvlacio sliku na zadati opseg celija. Za twoCellAnchor
+// velicinu odredjuju celije, a za ostale sidra zadata velicina.
+IF ::Type != 2
+	c += t+t+t+'<a:xfrm>'+nl
+	c += t+t+t+t+'<a:off x="'+_S(IIF(::Type == 0, ::nX, "0"))+'" y="'+_S(IIF(::Type == 0, ::nY, "0"))+'"/>'+nl
+	c += t+t+t+t+'<a:ext cx="'+_S(::nSizeX)+'" cy="'+_S(::nSizeY)+'"/>'+nl
+	c += t+t+t+'</a:xfrm>'+nl
+ENDIF
 c += t+t+t+'<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>'+nl
 c += t+t+t+'<a:ln><a:noFill/></a:ln>'+nl
 c += t+t+'</xdr:spPr>'+nl
@@ -651,20 +678,16 @@ IF ASCAN( ::oWorkBook:aUsedDrawingType, {|aVal| aVal == cType } ) == 0
 ENDIF
 Return Self
 
+// Slika od gornjeg levog ugla celije uAddr1 ("C3" ili { nRed, nKol }), velicine
+// nSizeX x nSizeY EMU (1 cm = 360000, 1 piksel = 9525)
 METHOD OneCellAnchor( uAddr1, nSizeX, nSizeY, cPath ) CLASS DrawingML
-Local nPos := 0, nRow, nCol
+LOCAL nRow := 0, nCol := 0
 LOCAL cType := lower( SUBSTR( hb_FNameExt( cPath ), 2 ) )
 ::Type := 1
-IF HB_ISARRAY( uAddr1 )
-	::nRow1 := HB_NTOS(uAddr1[1])
-	::nCol1 := HB_NTOS(uAddr1[2])
-ELSE
-    nRow := 0
-	nCol := 0
-	WORKSHEET_RC( uAddr1, @nRow, @nCol )
-	::nRow1 := HB_NTOS(nRow-1)
-	::nCol1 := HB_NTOS(nCol-1)	
-ENDIF
+// ranije je niz { nRed, nKol } uziman bez -1, pa je slika bila red/kolonu dalje
+_CellRC( uAddr1, @nRow, @nCol )
+::nRow1 := HB_NTOS( nRow - 1 )
+::nCol1 := HB_NTOS( nCol - 1 )
 ::cPath := cPath
 ::nSizeX := HB_NTOS(nSizeX)
 ::nSizeY := HB_NTOS(nSizeY)
@@ -673,31 +696,19 @@ IF ASCAN( ::oWorkBook:aUsedDrawingType, {|aVal| aVal == cType } ) == 0
 ENDIF
 Return Self
 
-
+// Slika razvucena od gornjeg levog ugla celije uAddr1 do donjeg desnog ugla celije uAddr2
 METHOD TwoCellAnchor( uAddr1, uAddr2, cPath ) CLASS DrawingML
-Local nPos := 0, nRow, nCol
+LOCAL nRow := 0, nCol := 0
 LOCAL cType := lower( SUBSTR( hb_FNameExt( cPath ), 2 ) )
 ::Type := 2
-IF HB_ISARRAY( uAddr1 )
-	::nRow1 := uAddr1[1]
-	::nCol1 := uAddr1[2]
-ELSE
-    nRow := 0
-	nCol := 0
-	WORKSHEET_RC( uAddr1, @nRow, @nCol )
-	::nRow1 := HB_NTOS(nRow-1)
-	::nCol1 := HB_NTOS(nCol-1)	
-ENDIF
-IF HB_ISARRAY( uAddr2 )
-	::nRow2 := uAddr2[1]
-	::nCol2 := uAddr2[2]
-ELSE
-    nRow := 0
-	nCol := 0
-	WORKSHEET_RC( uAddr2, @nRow, @nCol )
-	::nRow2 := HB_NTOS(nRow)
-	::nCol2 := HB_NTOS(nCol)	
-ENDIF
+_CellRC( uAddr1, @nRow, @nCol )
+::nRow1 := HB_NTOS( nRow - 1 )
+::nCol1 := HB_NTOS( nCol - 1 )
+nRow := 0
+nCol := 0
+_CellRC( uAddr2, @nRow, @nCol )
+::nRow2 := HB_NTOS( nRow )
+::nCol2 := HB_NTOS( nCol )
 ::cPath := cPath
 IF ASCAN( ::oWorkBook:aUsedDrawingType, {|aVal| aVal == cType } ) == 0
     aADD( ::oWorkBook:aUsedDrawingType, cType )
@@ -726,6 +737,7 @@ DATA print_scale INIT 100
 DATA right_to_left INIT .F.
 DATA show_zeros INIT .T.
 DATA leading_zeros INIT .F.
+DATA nTitlesRows INIT 0          // redovi 1..n se ponavljaju na vrhu svake odstampane strane
 DATA nMaxRow PROTECTED
 DATA nMaxCol PROTECTED
 DATA aData PROTECTED
@@ -744,9 +756,9 @@ DATA aHeader PROTECTED
 DATA aFooter PROTECTED
 METHOD New(cName)
 METHOD WriteWorksheet(n, cPath)
-METHOD Cell(uAddr, nValue, nStyle)
+METHOD Cell(uAddr, xValue, nStyle)
 METHOD Formula(uAddr, cFormula, nStyle)
-METHOD WriteCell(uAddr, nValue, nStyle)
+METHOD WriteCell(uAddr, xValue, nStyle)
 METHOD ReadCell(uAddr)
 METHOD CellFormula( uAddr )
 METHOD Range( xRange )
@@ -755,7 +767,7 @@ METHOD LastRow()
 METHOD LastCol()
 METHOD MergedCells()
 METHOD MergeCell(uAddr)
-METHOD ColumnsWidth( nMin, nLast, nWidth )
+METHOD ColumnsWidth( nMin, nMax, nWidth )
 METHOD AddHeader( cLeft, cCenter, cRight )
 METHOD AddFooter( cLeft, cCenter, cRight )
 METHOD RowDetail( nRow, nHeight, nStyle, lHide )
@@ -801,9 +813,9 @@ Return Self
 
 METHOD RowDetail( nRow, nHeight, nStyle, lHide ) CLASS WorkSheet
 LOCAL i
-IF HB_ISNUMERIC(nRow)
+IF HB_ISNUMERIC(nRow) .AND. nRow >= 1
     IF LEN(::aRowsDetail)<nRow
-		FOR I=LEN(::aRowsDetail) TO nRow
+		FOR I := LEN(::aRowsDetail) + 1 TO nRow
 			aAdd( ::aRowsDetail, { 0, 0, .F. } )
 		NEXT I
 	ENDIF
@@ -815,12 +827,19 @@ RETURN Self
 //RETURN Self
 
 METHOD MergeCell( uAddr ) CLASS WorkSheet
-LOCAL nCol1, nCol2, nRow1, nRow2, adr, I, J, K
-IF HB_ISSTRING(uAddr) .AND. _AScanX( ::aMergeCells, uAddr )==0
-	AADD(  ::aMergeCells, uAddr )
-	adr := hb_ATokens( uAddr, ":" )
+LOCAL nCol1 := 0, nCol2 := 0, nRow1 := 0, nRow2 := 0, adr, I, J, K
+IF HB_ISSTRING( uAddr )
+	// "a1:c1" i "$A$1:$C$1" -> "A1:C1" (Excel prihvata samo veliko slovo bez $)
+	uAddr := Upper( StrTran( AllTrim( uAddr ), "$", "" ) )
+ENDIF
+adr := IIF( HB_ISSTRING( uAddr ), hb_ATokens( uAddr, ":" ), {} )
+IF LEN( adr ) == 2 .AND. _AScanX( ::aMergeCells, uAddr )==0
 	WORKSHEET_RC( adr[1], @nRow1, @nCol1 )
 	WORKSHEET_RC( adr[2], @nRow2, @nCol2 )
+	IF nRow1 < 1 .OR. nCol1 < 1 .OR. nRow2 < nRow1 .OR. nCol2 < nCol1
+		RETURN Self
+	ENDIF
+	AADD(  ::aMergeCells, uAddr )
     FOR I:=nRow1 TO nRow2
 		FOR J:=nCol1 TO nCol2
 			::nMaxCol := IIF( J > ::nMaxCol, J, ::nMaxCol )
@@ -958,13 +977,18 @@ ENDIF
 RETURN Self
 
 METHOD WriteCell( uAddr, xValue, nStyle ) CLASS WorkSheet
-LOCAL nCol := 0, nRow := 0, lIsMerge := .F., nRow1 := 0, nCol1 := 0, nRow2 := 0, nCol2 := 0
+LOCAL nCol := 0, nRow := 0, lIsMerge, nRow1 := 0, nCol1 := 0, nRow2 := 0, nCol2 := 0
 LOCAL i, j, k, l, adr
-IF HB_ISARRAY( uAddr )
+IF HB_ISARRAY( uAddr ) .AND. LEN( uAddr ) >= 2
 	nRow := uAddr[1]
 	nCol := uAddr[2]
-ELSE
-	WORKSHEET_RC( uAddr, @nRow, @nCol )
+ELSEIF HB_ISSTRING( uAddr )
+	WORKSHEET_RC( StrTran( uAddr, "$", "" ), @nRow, @nCol )
+ENDIF
+// neispravna adresa (npr. "", "A0", NIL) ranije je rusila program ili pravila los fajl;
+// Excel ima najvise 1048576 redova i 16384 kolone
+IF ! HB_ISNUMERIC( nRow ) .OR. ! HB_ISNUMERIC( nCol ) .OR. nRow < 1 .OR. nCol < 1 .OR. nRow > 1048576 .OR. nCol > 16384
+	RETURN NIL
 ENDIF
 ::nMaxCol := IIF( nCol > ::nMaxCol, nCol, ::nMaxCol )
 ::nMaxRow := IIF( nRow > ::nMaxRow, nRow, ::nMaxRow )
@@ -982,6 +1006,10 @@ lIsMerge := IIF( HB_ISSTRING(::aData[nRow,nCol]) .AND. ::aData[nRow,nCol]==CHR(0
 IF HB_ISSTRING(xValue)
 	// tekst iz baze (npr. CP852) -> UTF-8; kontrolni znakovi nisu dozvoljeni u XML-u
 	xValue := XmlClean( ::oParent:ToUTF8( xValue ) )
+	// Excel dozvoljava najvise 32767 znakova u celiji, inace odbija ceo fajl
+	IF hb_UTF8Len( xValue ) > 32767
+		xValue := hb_UTF8Left( xValue, 32767 )
+	ENDIF
 	IF ::oParent:lFormulaPrefix .AND. LEFT( xValue, 1 ) == "="
 		xValue := { SUBSTR( xValue, 2 ) }
 	ENDIF
@@ -997,8 +1025,10 @@ IF !HB_ISNIL(xValue)
 		ENDIF
 	ENDIF
 ENDIF
-IF HB_ISNIL(nStyle) .AND. HB_ISDATE(xValue)
+IF HB_ISNIL(nStyle) .AND. ValType(xValue) == "D"
 	nStyle := ::oParent:NewStyle( , , , , ,::oParent:NewFormat("dd/mm/yyyy"))
+ELSEIF HB_ISNIL(nStyle) .AND. ValType(xValue) == "T"     // DateTime (npr. iz Read())
+	nStyle := ::oParent:NewStyle( , , , , ,::oParent:NewFormat("m/d/yyyy h:mm"))
 ENDIF
 IF !HB_ISNIL(nStyle) .AND. HB_ISNUMERIC(nStyle) 	
 	IF LEN( ::aStyle ) < nRow
@@ -1041,84 +1071,115 @@ ENDIF
 Return ::aData[nRow,nCol]
 
 METHOD WriteWorksheet(n, cPath) CLASS WorkSheet
-LOCAL v, i, j, c, handle, ht, cLastStyle := '', cS, nIdx
+LOCAL i, j, c, x, handle, cS, cSA, cLastStyle, cRowAttr, cCells, nIdx, aRow, aSty, aDet, nRows
+LOCAL hW, aK, nFrom, nTo, nW, a
+LOCAL nl := chr(10)
 handle := FCreate( cPath+"sheet"+HB_NTOS(n)+".xml" )
-FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+chr(10) )   
-FWrite( handle, '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac xr xr2 xr3" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xmlns:xr2="http://schemas.microsoft.com/office/spreadsheetml/2015/revision2" xmlns:xr3="http://schemas.microsoft.com/office/spreadsheetml/2016/revision3" xr:uid="{00000000-0001-0000-0000-000000000000}">'+chr(10) )
-FWrite( handle, '<sheetPr><pageSetUpPr fitToPage="'+iif(::fitToPage,"1","0")+'"/></sheetPr>'+chr(10) )
+FWrite( handle, '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+nl )
+FWrite( handle, '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" mc:Ignorable="x14ac xr xr2 xr3" xmlns:x14ac="http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac" xmlns:xr="http://schemas.microsoft.com/office/spreadsheetml/2014/revision" xmlns:xr2="http://schemas.microsoft.com/office/spreadsheetml/2015/revision2" xmlns:xr3="http://schemas.microsoft.com/office/spreadsheetml/2016/revision3" xr:uid="{00000000-0001-0000-0000-000000000000}">'+nl )
+FWrite( handle, '<sheetPr><pageSetUpPr fitToPage="'+iif(::fitToPage,"1","0")+'"/></sheetPr>'+nl )
 // ColumnIndexToColumnLetter: ranije CHR() pa je kolona posle Z davala "["
-FWrite( handle, '<dimension ref="A1'+IIF( ::nMaxRow > 0 .AND. ::nMaxCol > 0, ':'+ColumnIndexToColumnLetter(::nMaxCol)+HB_NTOS(::nMaxRow), '' )+'"/>'+chr(10) )
-FWrite( handle, '<sheetFormatPr defaultRowHeight="15"/>'+chr(10) )
+FWrite( handle, '<dimension ref="A1'+IIF( ::nMaxRow > 0 .AND. ::nMaxCol > 0, ':'+ColumnIndexToColumnLetter(::nMaxCol)+HB_NTOS(::nMaxRow), '' )+'"/>'+nl )
+FWrite( handle, '<sheetFormatPr defaultRowHeight="15"/>'+nl )
+// Sirine kolona: Excel trazi <col> rastuce i bez preklapanja, a ColumnsWidth() moze
+// da se zove bilo kojim redom i za opsege koji se preklapaju (vazi poslednji poziv)
 IF LEN( ::aCols ) > 0
-	FWrite( handle, '<cols>'+chr(10) )
-	FOR I=1 TO LEN( ::aCols )
-		FWrite( handle, '<col min="'+HB_NTOS(::aCols[I,1])+'" max="'+HB_NTOS(::aCols[I,2])+'" width="'+HB_NTOC(::aCols[I,3],8)+'" bestFit="1" customWidth="1"/>'+chr(10) ) 
-	NEXT I
-	FWrite( handle, '</cols>'+chr(10) )
-ENDIF
-FWrite( handle, '<sheetData>'+chr(10) )
-FOR I:=1 TO LEN( ::aData )
-    cLastStyle := ''
-    ht:=iif(LEN(::aRowsDetail)>=I,iif(::aRowsDetail[i,1]>0,' customHeight="1" ht="'+HB_NTOS(::aRowsDetail[i,1])+'"',""),"")
-	IF LEN(::aData[I])>0 
-	    FOR J:=1 TO LEN(::aData[I])
-		    IF !HB_ISNIL(::aData[I,J])
-				c := J
-				J := LEN(::aData[I]) + 1
-            ENDIF
-        NEXT J 		
-		FWrite( handle, '<row r="'+HB_NTOS(I)+'" spans="'+HB_NTOS(c)+':'+HB_NTOS(LEN(::aData[I]))+'"'+ht+'>'+chr(10) )
-		FOR J:=1 TO LEN(::aData[I])
-			c := ColumnIndexToColumnLetter(J)+HB_NTOS(I)
-			cS := IIF( !(LEN( ::aStyle ) < I) .AND. !(LEN(::aStyle[I])<J) .AND. HB_ISSTRING(::aStyle[I,J]), ' s="'+::aStyle[I,J]+'"', '' )
-			IF !HB_ISNIL(::aData[I,J])
-				IF !(LEN( ::aStyle ) < I) .AND. !(LEN(::aStyle[I])<J) .AND. (HB_ISSTRING(::aStyle[I,J]))
-					cLastStyle := ::aStyle[I,J]
-				ENDIF
-				IF HB_ISNUMERIC(::aData[I,J])
-                    v := HB_NTOC(::aData[I,J]) 
-					IF !(LEN( ::aStyle ) < I) .AND. !(LEN(::aStyle[I])<J) .AND. (HB_ISSTRING(::aStyle[I,J]))
-						FWrite( handle, '<c r="'+c+'" s="'+::aStyle[I,J]+'"><v>'+v+'</v></c>'+chr(10) )
-					ELSE
-						FWrite( handle, '<c r="'+c+'"><v>'+v+'</v></c>'+chr(10) )
-					ENDIF
-				ELSEIF HB_ISARRAY(::aData[I,J])
-					// formula, interno { cFormula }
-					v := XmlEsc( ::aData[I,J][1] )
-					FWrite( handle, '<c r="'+c+'" t="str"'+cS+'><f>'+v+'</f></c>'+chr(10) )
-				ELSEIF HB_ISSTRING(::aData[I,J])
-					IF LEFT( ::aData[I,J], 1 ) == CHR(0)
-						FWrite( handle, iif( HB_ISNIL(cLastStyle) .OR. cLastStyle=='','','<c r="'+c+ '" s="'+cLastStyle+'"></c>'+chr(10) ) )
-					ELSE
-						nIdx := hb_HGetDef( ::oParent:hSharedStrings, ::aData[I,J], 0 )
-						IF nIdx > 0
-							FWrite( handle, '<c r="'+c+'" t="s"'+cS+'><v>'+HB_NTOS(nIdx-1)+'</v></c>'+chr(10) )
-						ELSE
-							// tekst koji nije prosao kroz WriteCell (npr. ucitan inlineStr)
-							FWrite( handle, '<c r="'+c+'" t="inlineStr"'+cS+'><is><t xml:space="preserve">'+XmlEsc(::aData[I,J])+'</t></is></c>'+chr(10) )
-						ENDIF
-					ENDIF
-				ELSEIF HB_ISLOGICAL(::aData[I,J])						
-                                        v := IIF( ::aData[I,J], "1", "0" )
-					IF !(LEN( ::aStyle ) < I) .AND. !(LEN(::aStyle[I])<J) .AND. (HB_ISSTRING(::aStyle[I,J]))
-						FWrite( handle, '<c r="' +c+ '" t="b" s="'+::aStyle[I,J]+'"><v>' +v+ '</v></c>'+chr(10) )
-					ELSE
-						FWrite( handle, '<c r="' +c+ '" t="b"><v>' +v+ '</v></c>'+chr(10) )							
-					ENDIF
-				ELSEIF HB_ISDATE(::aData[I,J])
-					// prazan datum = prazna celija (ranije negativan broj, Excel prikaze ####)
-					IF EMPTY( ::aData[I,J] )
-						FWrite( handle, '<c r="'+c+'"'+cS+'/>'+chr(10) )
-					ELSE
-						v := ALLTRIM( STR(::aData[I,J]-HB_STOD( "19000101" )+2,10,0) )
-						FWrite( handle, '<c r="'+c+'"'+cS+'><v>'+v+'</v></c>'+chr(10) )
-					ENDIF
+	hW := { => }
+	FOR EACH a IN ::aCols
+		FOR j := Max( a[1], 1 ) TO Min( a[2], 16384 )
+			hW[ j ] := a[3]
+		NEXT
+	NEXT
+	aK := ASort( hb_HKeys( hW ) )
+	IF LEN( aK ) > 0
+		FWrite( handle, '<cols>'+nl )
+		nFrom := aK[ 1 ]
+		nTo := nFrom
+		nW := hW[ nFrom ]
+		FOR i := 2 TO LEN( aK ) + 1
+			IF i <= LEN( aK ) .AND. aK[ i ] == nTo + 1 .AND. hW[ aK[ i ] ] == nW
+				nTo := aK[ i ]
+			ELSE
+				FWrite( handle, '<col min="'+HB_NTOS(nFrom)+'" max="'+HB_NTOS(nTo)+'" width="'+HB_NTOC(nW,8)+'" bestFit="1" customWidth="1"/>'+nl )
+				IF i <= LEN( aK )
+					nFrom := aK[ i ]
+					nTo := nFrom
+					nW := hW[ nFrom ]
 				ENDIF
 			ENDIF
-		NEXT J
-		FWrite( handle, '</row>'+chr(10) )
+		NEXT
+		FWrite( handle, '</cols>'+nl )
 	ENDIF
-NEXT I
+ENDIF
+FWrite( handle, '<sheetData>'+nl )
+// Red se pise ako ima podataka ili podesavanja iz RowDetail() (ranije je visina
+// praznog reda bila izgubljena, a stil i skrivanje reda se nisu ni upisivali)
+nRows := Max( LEN( ::aData ), LEN( ::aRowsDetail ) )
+FOR i := 1 TO nRows
+	aRow := IIF( i <= LEN( ::aData ), ::aData[ i ], {} )
+	aSty := IIF( i <= LEN( ::aStyle ) .AND. HB_ISARRAY( ::aStyle[ i ] ), ::aStyle[ i ], {} )
+	aDet := IIF( i <= LEN( ::aRowsDetail ), ::aRowsDetail[ i ], NIL )
+	cRowAttr := ""
+	IF aDet != NIL
+		IF aDet[ 1 ] > 0
+			cRowAttr += ' ht="'+HB_NTOS( aDet[ 1 ] )+'" customHeight="1"'
+		ENDIF
+		IF aDet[ 3 ]
+			cRowAttr += ' hidden="1"'
+		ENDIF
+		IF aDet[ 2 ] > 0
+			cRowAttr += ' s="'+HB_NTOS( aDet[ 2 ] )+'" customFormat="1"'
+		ENDIF
+	ENDIF
+	cCells := ""
+	cLastStyle := ""
+	FOR j := 1 TO LEN( aRow )
+		x := aRow[ j ]
+		IF x == NIL
+			LOOP
+		ENDIF
+		cS := IIF( j <= LEN( aSty ) .AND. HB_ISSTRING( aSty[ j ] ), aSty[ j ], "" )
+		IF ! Empty( cS )
+			cLastStyle := cS
+		ENDIF
+		cSA := IIF( Empty( cS ), "", ' s="'+cS+'"' )
+		c := ColumnIndexToColumnLetter( j ) + HB_NTOS( i )
+		DO CASE
+		CASE HB_ISNUMERIC( x )
+			cCells += '<c r="'+c+'"'+cSA+'><v>'+HB_NTOC( x )+'</v></c>'+nl
+		CASE HB_ISARRAY( x )
+			// formula, interno { cFormula [, xVrednost] }
+			cCells += '<c r="'+c+'" t="str"'+cSA+'><f>'+XmlEsc( x[ 1 ] )+'</f></c>'+nl
+		CASE HB_ISSTRING( x )
+			IF LEFT( x, 1 ) == CHR(0)
+				// ostatak spojene celije: stil celije ili poslednji stil u redu
+				IF ! Empty( cLastStyle )
+					cCells += '<c r="'+c+'" s="'+cLastStyle+'"/>'+nl
+				ENDIF
+			ELSE
+				nIdx := hb_HGetDef( ::oParent:hSharedStrings, x, 0 )
+				IF nIdx > 0
+					cCells += '<c r="'+c+'" t="s"'+cSA+'><v>'+HB_NTOS(nIdx-1)+'</v></c>'+nl
+				ELSE
+					// tekst koji nije prosao kroz WriteCell (npr. ucitan inlineStr)
+					cCells += '<c r="'+c+'" t="inlineStr"'+cSA+'><is><t xml:space="preserve">'+XmlEsc( x )+'</t></is></c>'+nl
+				ENDIF
+			ENDIF
+		CASE HB_ISLOGICAL( x )
+			cCells += '<c r="'+c+'" t="b"'+cSA+'><v>'+IIF( x, "1", "0" )+'</v></c>'+nl
+		CASE ValType( x ) == "D" .OR. ValType( x ) == "T"
+			// prazan datum = prazna celija (ranije negativan broj, Excel prikaze ####)
+			IF EMPTY( x )
+				cCells += '<c r="'+c+'"'+cSA+'/>'+nl
+			ELSE
+				cCells += '<c r="'+c+'"'+cSA+'><v>'+_DateToSerial( x )+'</v></c>'+nl
+			ENDIF
+		ENDCASE
+	NEXT
+	IF ! Empty( cCells ) .OR. ! Empty( cRowAttr )
+		FWrite( handle, '<row r="'+HB_NTOS(i)+'"'+cRowAttr+'>'+nl+cCells+'</row>'+nl )
+	ENDIF
+NEXT
 FWrite( handle, '</sheetData>'+chr(10) )
 IF LEN( ::aMergeCells ) > 0
 	FWrite( handle, '<mergeCells>'+chr(10) )
@@ -1173,7 +1234,7 @@ Return Self
 METHOD ReadWorkSheet( cFileName, aSST, aKinds ) CLASS WorkSheet
 LOCAL cTok, cA, cTag, nKind, cText, h, oWB := ::oParent
 LOCAL nRow := 0, nCol := 0, nR, nXf := 1, cR, cType := "", cV, cF, cIs, xVal, i
-LOCAL lIs := .F., lPh := .F.
+LOCAL lIs := .F., lPh := .F., cDateSt, cTimeSt
    IF ! HB_ISARRAY( aSST )
       aSST := oWB:aSharedStrings
    ENDIF
@@ -1243,6 +1304,20 @@ LOCAL lIs := .F., lPh := .F.
                ::aData[ nRow, nCol ] := xVal
                ::nMaxRow := Max( ::nMaxRow, nRow )
                ::nMaxCol := Max( ::nMaxCol, nCol )
+               // datum dobije format datuma, da posle Read() + Save() ne postane broj
+               IF ValType( xVal ) == "D" .OR. ValType( xVal ) == "T"
+                  IF cDateSt == NIL
+                     cDateSt := HB_NTOS( oWB:NewStyle( , , , , , oWB:NewFormat( "dd/mm/yyyy" ) ) )
+                     cTimeSt := HB_NTOS( oWB:NewStyle( , , , , , oWB:NewFormat( "m/d/yyyy h:mm" ) ) )
+                  ENDIF
+                  DO WHILE LEN( ::aStyle ) < nRow
+                     AAdd( ::aStyle, {} )
+                  ENDDO
+                  IF LEN( ::aStyle[ nRow ] ) < nCol
+                     ASize( ::aStyle[ nRow ], nCol )
+                  ENDIF
+                  ::aStyle[ nRow, nCol ] := IIF( ValType( xVal ) == "D", cDateSt, cTimeSt )
+               ENDIF
             ENDIF
          ENDIF
       CASE cTag == "f"
@@ -1278,7 +1353,7 @@ RETURN Self
 STATIC Function ColumnIndexToColumnLetter(colIndex)
 LOCAL div := colIndex
 LOCAL colLetter := ""
-LOCAL modnum := 0
+LOCAL modnum
 While div > 0
     modnum := MOD((div - 1),26)
     colLetter := Chr(65 + modnum) + colLetter
@@ -1687,6 +1762,44 @@ RETURN '<a:solidFill><a:srgbClr val="'+cRGB+'"/></a:solidFill>'
 STATIC FUNCTION _AScanX( a, x )
 RETURN AScan( a, {| e | HB_ISSTRING( e ) .AND. e == x } )
 
+// sheet po imenu bez obzira na velika/mala slova (Excel ih ne razlikuje)
+STATIC FUNCTION _SheetPos( a, cName )
+LOCAL cU := Upper( cName )
+RETURN AScan( a, {| e | Upper( e ) == cU } )
+
+// ime sheet-a po pravilima Excela: bez : \ / ? * [ ], ne pocinje i ne zavrsava
+// se apostrofom, najvise 31 znak
+STATIC FUNCTION _SheetName( cName )
+cName := hb_StrReplace( IIF( HB_ISSTRING( cName ), AllTrim( cName ), "" ), ":\/?*[]", "_______" )
+IF Left( cName, 1 ) == "'"
+   cName := "_" + SubStr( cName, 2 )
+ENDIF
+IF Right( cName, 1 ) == "'"
+   cName := Left( cName, Len( cName ) - 1 ) + "_"
+ENDIF
+IF Empty( cName )
+   cName := "Sheet"
+ENDIF
+RETURN IIF( hb_StrIsUTF8( cName ), hb_UTF8Left( cName, 31 ), Left( cName, 31 ) )
+
+// Date / DateTime -> Excel serijski broj (1900 sistem). Excel broji nepostojeci
+// 29.02.1900, pa su datumi pre 01.03.1900 za jedan manji.
+STATIC FUNCTION _DateToSerial( x )
+LOCAL d := IIF( ValType( x ) == "T", hb_TToD( x ), x ), nDays, nFrac := 0
+nDays := d - hb_SToD( IIF( d < hb_SToD( "19000301" ), "18991231", "18991230" ) )
+IF ValType( x ) == "T"
+   nFrac := x - hb_DToT( d )            // deo dana (razlika dva timestamp-a je u danima)
+ENDIF
+RETURN IIF( nFrac == 0, HB_NTOS( nDays ), HB_NTOC( nDays + nFrac ) )
+
+// boja za styles.xml: ARGB sa 8 heks cifara ("FF0000" -> "FFFF0000")
+STATIC FUNCTION _ARGB( c )
+c := Upper( AllTrim( _S( c ) ) )
+IF Left( c, 1 ) == "#"
+   c := SubStr( c, 2 )
+ENDIF
+RETURN IIF( Len( c ) == 6, "FF" + c, c )
+
 // { nRed, nKol } ili "B3" -> red i kolona (1-based)
 STATIC PROCEDURE _CellRC( u, nRow, nCol )
    IF HB_ISARRAY( u )
@@ -1951,6 +2064,12 @@ HB_FUNC( WORKSHEET_RC )
 { 
   const char *cellAddr = hb_parc(1);
   int ii=0, jj, colVal=0;
+  if( ! cellAddr )   /* NIL ili ne-string adresa: ranije pad programa */
+  {
+    hb_storni( 0, 2 );
+    hb_storni( 0, 3 );
+    return;
+  }
   while(cellAddr[ii++] >= 'A') {};
   ii--;
   for(jj=0;jj<ii;jj++) colVal = 26*colVal + HB_TOUPPER(cellAddr[jj]) -'A' + 1;
