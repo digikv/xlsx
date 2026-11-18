@@ -5,6 +5,9 @@
  * Copyright 2018 - 2026 Srđan Dragojlović <digikv@yahoo.com>
  * Company  S.O.K. doo Kraljevo
  * www - https://sokdoo.com
+ *
+ * Dual licensed: GNU GPL version 3 or later (COPYING), or a commercial
+ * license from the author - see LICENSE.
 */
 
 #require "hbmzip"

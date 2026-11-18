@@ -1,0 +1,32 @@
+XLSX writer/reader class - pure Harbour (XLSXClass.prg)
+Copyright (c) 2018 - 2026 Srđan Dragojlović
+
+This software is dual licensed. You may use it under the terms of ONE of
+these licenses, at your choice:
+
+1. GNU General Public License, version 3 or (at your option) any later
+   version, as published by the Free Software Foundation. The full text is
+   in the file COPYING.
+
+   Under the GPL you may use, study, change and share it freely. If you
+   distribute it or a work based on it - also a program that includes it -
+   you must distribute that under the GPL as well, with its complete source
+   code.
+
+2. A commercial license from the author.
+
+   For use that the GPL does not allow - for example including the class in
+   a closed source (proprietary) program - a commercial license is needed.
+   It is granted in writing by the author:
+
+       Srđan Dragojlović, S.O.K. doo Kraljevo, https://sokdoo.com
+
+Unless a commercial license says otherwise, this software is provided
+"as is", without warranty of any kind, express or implied, including but
+not limited to the warranties of merchantability, fitness for a particular
+purpose and noninfringement. In no event shall the author be liable for any
+claim, damages or other liability arising from its use.
+
+The class uses the Harbour contribs hbmzip / hbziparc (GPL with the Harbour
+linking exception) and minizip / zlib (zlib license); their licenses apply to
+them.
