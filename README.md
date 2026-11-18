@@ -340,6 +340,7 @@ data validation, frozen panes; a gradient fill becomes a solid fill.
 ## License
 
 Dual licensed: **GNU GPL version 3 or later** (`COPYING`) **or a commercial license** from the
-author, Srđan Dragojlović (S.O.K. doo Kraljevo, https://sokdoo.com). Under the GPL a program that
+author, Srđan Dragojlović (S.O.K. doo Kraljevo, https://sokdoo.com, digikv@yahoo.com,
+sok@sokdoo.com). Under the GPL a program that
 includes the class must be distributed under the GPL with its source; for closed source programs
 ask for a commercial license. See `LICENSE`.
