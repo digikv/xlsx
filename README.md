@@ -1,7 +1,7 @@
 # xlsx
 
-Create and read `.xlsx` files with a pure Harbour class. No Excel, OLE/ActiveX or external DLLs are needed.
-Everything is in one source file: `XLSXClass.prg`.
+Create and read `.xlsx` (Excel) workbooks with a pure Harbour class. No Excel, OLE/ActiveX or external DLLs are needed.
+Everything is in one source file: `XLSXClass.prg`. It is the companion of the [docx](https://github.com/digikv/docx) class.
 
 ## Features
 
@@ -26,15 +26,21 @@ Add `XLSXClass.prg` to your project and link the `hbziparc` contrib (Harbour 3.2
 hbmk2 myapp.prg XLSXClass.prg hbziparc.hbc
 ```
 
-The `samples` folder has ready-made `.hbp` files:
+The `samples` folder has ready-made `.hbp` files; `build.bat` (Windows) or `./build.sh` (Linux)
+builds all samples and passes hbmk2 options on (`build -comp=bcc`):
 
 ```
 cd samples
+build
+
+rem or one by one:
 hbmk2 xlsxwriter.hbp
 hbmk2 xlsxreader.hbp
 hbmk2 xlsxreport.hbp
 hbmk2 xlsxchart.hbp
 ```
+
+The class can be linked together with `DOCXClass.prg` in the same program.
 
 ## Quick start
 
