@@ -343,12 +343,16 @@ data validation, frozen panes; a gradient fill becomes a solid fill.
 | `samples/XLSXChart.prg` | column, line, horizontal bar and pie charts |
 | `samples/XLSXReader.prg` | reading `sample.xlsx`: sheet names, values, dates, formulas, ranges, merged cells |
 
-## License & Commercial Use
+## License, Donations & Commercial Use
 
 Dual licensed: **GNU GPL version 3 or later** (`COPYING`) **or a commercial license** from the author, Srđan Dragojlović (`digikv@yahoo.com`).
 
-* **Open-Source & Internal Use (GPLv3):** Under the GPLv3, a program that includes this class must be distributed under the GPL with its source code. Using the library strictly internally within a single company without distributing it to third parties is permitted under the GPLv3 at no cost.
+* **Open-Source & Internal Use (GPLv3):** Free to use in open-source projects, for personal use, or strictly internally within a single company without distribution to third parties.
 * **Commercial License (Closed-Source):** For closed-source programs distributed or sold to third parties, a one-time, perpetual company-wide commercial license is available for **150 EUR** (or **190 EUR** as a bundle together with the companion `DOCXClass.prg` library), covering unlimited internal developers and deployments.
+
+### Support & Donations
+If you use this library for personal, open-source, or internal projects and find it helpful, voluntary donations to support ongoing development are warmly appreciated:
+* **PayPal:** `digikv@yahoo.com`
 
 ### How to Purchase a Commercial License
 1. Send the payment (**150 EUR** for `XLSXClass.prg` or **190 EUR** for the `XLSXClass.prg` + `DOCXClass.prg` bundle) via **PayPal** to: `digikv@yahoo.com`
