@@ -343,10 +343,16 @@ data validation, frozen panes; a gradient fill becomes a solid fill.
 | `samples/XLSXChart.prg` | column, line, horizontal bar and pie charts |
 | `samples/XLSXReader.prg` | reading `sample.xlsx`: sheet names, values, dates, formulas, ranges, merged cells |
 
-## License
+## License & Commercial Use
 
-Dual licensed: **GNU GPL version 3 or later** (`COPYING`) **or a commercial license** from the
-author, Srđan Dragojlović (S.O.K. doo Kraljevo, https://sokdoo.com, digikv@yahoo.com,
-sok@sokdoo.com). Under the GPL a program that
-includes the class must be distributed under the GPL with its source; for closed source programs
-ask for a commercial license. See `LICENSE`.
+Dual licensed: **GNU GPL version 3 or later** (`COPYING`) **or a commercial license** from the author, Srđan Dragojlović (`digikv@yahoo.com`).
+
+* **Open-Source & Internal Use (GPLv3):** Under the GPLv3, a program that includes this class must be distributed under the GPL with its source code. Using the library strictly internally within a single company without distributing it to third parties is permitted under the GPLv3 at no cost.
+* **Commercial License (Closed-Source):** For closed-source programs distributed or sold to third parties, a one-time, perpetual company-wide commercial license is available for **150 EUR** (or **190 EUR** as a bundle together with the companion `DOCXClass.prg` library), covering unlimited internal developers and deployments.
+
+### How to Purchase a Commercial License
+1. Send the payment (**150 EUR** for `XLSXClass.prg` or **190 EUR** for the `XLSXClass.prg` + `DOCXClass.prg` bundle) via **PayPal** to: `digikv@yahoo.com`
+2. Include your **company name** and **email address** in the PayPal payment note (or send a confirmation email to `digikv@yahoo.com`).
+3. You will receive your commercial license certificate by email.
+
+See `LICENSE` for more details.
