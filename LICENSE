@@ -11,16 +11,22 @@ these licenses, at your choice:
    Under the GPL you may use, study, change and share it freely. If you
    distribute it or a work based on it - also a program that includes it -
    you must distribute that under the GPL as well, with its complete source
-   code.
+   code. Strictly internal use within a single organization without
+   distribution to third parties is permitted under the GPLv3 at no cost.
 
 2. A commercial license from the author.
 
    For use that the GPL does not allow - for example including the class in
-   a closed source (proprietary) program - a commercial license is needed.
-   It is granted in writing by the author:
+   a closed source (proprietary) program distributed or sold to third parties -
+   a commercial license is needed. It is granted in writing by the author:
 
-       Srđan Dragojlović, S.O.K. doo Kraljevo, https://sokdoo.com
-       e-mail: digikv@yahoo.com, sok@sokdoo.com
+       Srđan Dragojlović
+       Kraljevo, Serbia
+       e-mail / PayPal: digikv@yahoo.com
+
+   A one-time, perpetual company-wide commercial license is available for
+   150 EUR (or 190 EUR as a bundle together with DOCXClass.prg). Voluntary
+   donations for open-source or personal use are also welcome via PayPal.
 
 Unless a commercial license says otherwise, this software is provided
 "as is", without warranty of any kind, express or implied, including but
