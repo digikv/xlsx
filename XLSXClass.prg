@@ -863,6 +863,7 @@ METHOD MergedCells()
 METHOD MergeCell(uAddr)
 METHOD CellStyle( uAddr, nStyle )
 METHOD ColumnsWidth( nMin, nMax, nWidth, lHidden )
+METHOD ColumnWidths()
 METHOD AutoFit( xFrom, xTo, nMaxWidth )
 METHOD Conditional( cRange, cOp, xValue1, xValue2, nStyle )
 METHOD ColorScale( cRange, cMinColor, cMaxColor, cMidColor )
@@ -989,6 +990,10 @@ ENDIF
 RETURN Self
 
 // sirina kolona nMin..nMax; lHidden := .T. sakriva kolone
+// sirine kolona kako su zadate ili procitane: { { nMin, nMax, nWidth, lHidden }, ... }
+METHOD ColumnWidths() CLASS WorkSheet
+RETURN AClone( ::aCols )
+
 METHOD ColumnsWidth( nMin, nMax, nWidth, lHidden ) CLASS WorkSheet
 IF HB_ISNUMERIC(nMin) .AND. HB_ISNUMERIC(nMax) .AND. HB_ISNUMERIC(nWidth)
 	AADD( ::aCols, { nMin, nMax, nWidth, HB_ISLOGICAL( lHidden ) .AND. lHidden } )
