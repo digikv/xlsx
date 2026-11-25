@@ -181,6 +181,34 @@ Excel's rule *width = Truncate( ( pixels + 5 ) / 7 * 256 ) / 256*. As in Excel, 
 more columns and rotated text are left out; of a formula the value saved with it counts (`Read()`).
 `AutoFit( "A:J", , 50 )`: at most 50 characters wide.
 
+### Conditional formatting
+
+As Excel's Home - Conditional Formatting: the look of a cell follows its value. First a style of
+the rule (all parts optional), then the rules; the earlier rule wins when two of them apply.
+
+```harbour
+// NewCondStyle( cFontColor, lBold, cFillColor, lItalic, lUnderline, cBorderColor )
+nRed   := oExcel:NewCondStyle( "9C0006", .T., "FFC7CE" )
+nGreen := oExcel:NewCondStyle( "006100", , "C6EFCE" )
+nBlue  := oExcel:NewCondStyle( "0000FF", .T. )
+
+oSheet:Conditional( "B2:B100", "<", 0, nRed )                 // < <= > >= = <>
+oSheet:Conditional( "C2:C100", "between", 10, 20, nGreen )     // also "notBetween"
+oSheet:Conditional( "I2:I100", ">", Date(), nRed )             // a date, .T. / .F., a text, "=$H$1"
+oSheet:Conditional( "A2:A100", "text", "Kraljevo", nBlue )     // contains; "notText", "begins", "ends"
+oSheet:Conditional( "A2:H100", "formula", "$D2>1000", nGreen ) // a formula for the top left cell:
+                                                               // here the whole row by column D
+oSheet:Conditional( "G2:G100", "duplicate", , nRed )           // "unique", "blank", "notBlank",
+                                                               // "aboveAverage", "belowAverage"
+oSheet:Conditional( "H2:H100", "top", 3, nGreen )              // the 3 largest; "bottom", "top%", "bottom%"
+oSheet:ColorScale( "E2:E100", "F8696B", "63BE7B", "FFEB84" )   // min, max [, middle] colors
+oSheet:DataBar( "F2:F100", "638EC6" )                          // a bar in each cell
+```
+
+A range can be `"A2:A100"` or several, `"A2:A100 C2:C100"` (or with commas). Text in another
+codepage is converted as the text of the cells. `Read()` does not keep the conditional formats of
+a file.
+
 ### Page setup, header and footer
 
 ```harbour

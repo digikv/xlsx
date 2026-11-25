@@ -49,6 +49,7 @@ DATA aUsedDrawingType
 DATA aNumFormat PROTECTED
 DATA nDrawings PROTECTED
 DATA nCharts INIT 0 PROTECTED
+DATA aCondStyles INIT {} PROTECTED     // NewCondStyle(): { cFont, cFill, cBorder } (styles.xml <dxfs>)
 DATA aSharedStrings INIT {}
 DATA _str_total INIT 0 
 DATA nTitlesRows INIT 0
@@ -63,6 +64,7 @@ METHOD NewFillPattern( nFillPattern, cFG, cBG )
 METHOD NewBorder( nTL, nTR, nTT, nTB, nTD, cCL, cCR, cCT, cCB, cCD  )
 METHOD NewStyle( nFont, nBorder, nFill, nVA, nHA, nFormat, nRotation, lWrap )
 METHOD NewFormat( cFormat, lExact )
+METHOD NewCondStyle( cFontColor, lBold, cFillColor, lItalic, lUnderline, cBorderColor )
 METHOD New(cName)
 METHOD WorkSheet(cName)
 METHOD AddDrawing()
@@ -281,6 +283,39 @@ IF HB_ISSTRING( cFormat )
 ENDIF
 Return nPos
 
+// the look of a conditional format (Conditional()): the color of the text, bold, the color of
+// the cell, italic, underline, a thin border in a color; each one is optional ("" / NIL: as the cell)
+METHOD NewCondStyle( cFontColor, lBold, cFillColor, lItalic, lUnderline, cBorderColor ) CLASS WorkBook
+LOCAL cFont := "", cFill := "", cBorder := "", c, nPos, cSide
+IF HB_ISLOGICAL( lBold ) .AND. lBold
+	cFont += '<b/>'
+ENDIF
+IF HB_ISLOGICAL( lItalic ) .AND. lItalic
+	cFont += '<i/>'
+ENDIF
+IF HB_ISLOGICAL( lUnderline ) .AND. lUnderline
+	cFont += '<u/>'
+ENDIF
+IF HB_ISSTRING( cFontColor ) .AND. ! Empty( cFontColor )
+	cFont += '<color rgb="' + _ARGB( cFontColor ) + '"/>'
+ENDIF
+IF HB_ISSTRING( cFillColor ) .AND. ! Empty( cFillColor )
+	cFill := '<fill><patternFill patternType="solid"><fgColor rgb="' + _ARGB( cFillColor ) + '"/><bgColor rgb="' + _ARGB( cFillColor ) + '"/></patternFill></fill>'
+ENDIF
+IF HB_ISSTRING( cBorderColor ) .AND. ! Empty( cBorderColor )
+	cBorder := '<border>'
+	FOR EACH cSide IN { "left", "right", "top", "bottom" }
+		cBorder += '<' + cSide + ' style="thin"><color rgb="' + _ARGB( cBorderColor ) + '"/></' + cSide + '>'
+	NEXT
+	cBorder += '</border>'
+ENDIF
+c := IIF( Empty( cFont ), "", '<font>' + cFont + '</font>' ) + cFill + cBorder
+IF ( nPos := _AScanX( ::aCondStyles, c ) ) == 0
+	AAdd( ::aCondStyles, c )
+	nPos := LEN( ::aCondStyles )
+ENDIF
+RETURN nPos
+
 METHOD NewFont( cFont, nFontSize, lBold, lItalic, lUnderline, lStrike, cRGB ) CLASS WorkBook
 Local nPos
 cFont := iif( HB_ISNIL( cFont ), "Calibri", cFont )
@@ -330,6 +365,7 @@ ENDIF
 ::aNumFormat := { }
 ::aUsedDrawingType := {  }
 ::nDrawings := 0
+::aCondStyles := {}
 ::aSharedStrings := {}
 ::hSharedStrings := { => }       // podrazumevano binarno i case-sensitive
 ::_str_total := 0
@@ -619,7 +655,15 @@ LOCAL cDate := DTOS( DATE() ), cTime := TIME(), cDateTime := LEFT( cDate, 4 )+'-
 	FWrite( handle, '<cellStyles count="1">'+chr(10) )
 	FWrite( handle, '<cellStyle name="Normal" xfId="0" builtinId="0"/>'+chr(10) )
 	FWrite( handle, '</cellStyles>'+chr(10) )	
-	FWrite( handle, '<dxfs count="0"/>'+chr(10) )
+	IF LEN( ::aCondStyles ) == 0
+		FWrite( handle, '<dxfs count="0"/>'+chr(10) )
+	ELSE
+		FWrite( handle, '<dxfs count="'+HB_NTOS(LEN(::aCondStyles))+'">'+chr(10) )
+		FOR I := 1 TO LEN( ::aCondStyles )
+			FWrite( handle, '<dxf>'+::aCondStyles[I]+'</dxf>'+chr(10) )
+		NEXT
+		FWrite( handle, '</dxfs>'+chr(10) )
+	ENDIF
 	FWrite( handle, '<tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>'+chr(10) )
 	FWrite( handle, '<extLst>'+chr(10) )
 		FWrite( handle, '<ext uri="{EB79DEF2-80B8-43e5-95BD-54CBDDF9020C}" xmlns:x14="http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"><x14:slicerStyles defaultSlicerStyle="SlicerStyleLight1"/></ext>'+chr(10) )
@@ -803,6 +847,7 @@ DATA lHeader PROTECTED
 DATA lFooter PROTECTED
 DATA aHeader PROTECTED
 DATA aFooter PROTECTED
+DATA aCond PROTECTED              // conditional formats: { cSqref, cRule (priority "%P%") }
 METHOD New(cName)
 METHOD WriteWorksheet(n, cPath)
 METHOD Cell(uAddr, xValue, nStyle)
@@ -819,6 +864,9 @@ METHOD MergeCell(uAddr)
 METHOD CellStyle( uAddr, nStyle )
 METHOD ColumnsWidth( nMin, nMax, nWidth, lHidden )
 METHOD AutoFit( xFrom, xTo, nMaxWidth )
+METHOD Conditional( cRange, cOp, xValue1, xValue2, nStyle )
+METHOD ColorScale( cRange, cMinColor, cMaxColor, cMidColor )
+METHOD DataBar( cRange, cColor )
 METHOD AddHeader( cLeft, cCenter, cRight )
 METHOD AddFooter( cLeft, cCenter, cRight )
 METHOD RowDetail( nRow, nHeight, nStyle, lHide )
@@ -859,6 +907,7 @@ METHOD New(cName) CLASS WorkSheet
 ::lFooter := .F.
 ::aHeader := { "", "", "" }
 ::aFooter := { "", "", "" }
+::aCond := {}
 Return Self
 
 
@@ -945,6 +994,107 @@ IF HB_ISNUMERIC(nMin) .AND. HB_ISNUMERIC(nMax) .AND. HB_ISNUMERIC(nWidth)
 	AADD( ::aCols, { nMin, nMax, nWidth, HB_ISLOGICAL( lHidden ) .AND. lHidden } )
 ENDIF
 Return Self
+
+// Conditional formatting, as Excel's Home - Conditional Formatting. nStyle: oExcel:NewCondStyle().
+//   Conditional( "B2:B100", "<", 0, nStyle )          < <= > >= = <> : the value of the cell
+//   Conditional( "C2:C100", "between", 10, 20, nStyle )   also "notBetween"
+//   Conditional( "A2:A100", "text", "Kraljevo", nStyle )  contains; "notText", "begins", "ends"
+//   Conditional( "A2:D100", "formula", "$D2>1000", nStyle )  for the top left cell of the range
+//   Conditional( "E2:E100", "duplicate", , nStyle )   also "unique", "blank", "notBlank",
+//                                                     "aboveAverage", "belowAverage"
+//   Conditional( "F2:F100", "top", 10, nStyle )       the 10 largest; "bottom", "top%", "bottom%"
+// A value: a number, a date, .T. / .F., a text, or a formula as "=$H$1". The style may also be
+// the argument after the last value. The ranges: "A1:B5", "A1:B5 D1:D5" (or with commas).
+METHOD Conditional( cRange, cOp, xValue1, xValue2, nStyle ) CLASS WorkSheet
+LOCAL cSq := _CfRange( cRange ), cTL, cRule, cO, hOp, cT, nN
+hOp := { "<" => "lessThan", "<=" => "lessThanOrEqual", ">" => "greaterThan", ">=" => "greaterThanOrEqual", ;
+         "=" => "equal", "==" => "equal", "<>" => "notEqual", "!=" => "notEqual", ;
+         "between" => "between", "notbetween" => "notBetween" }
+cO := Lower( AllTrim( hb_defaultValue( cOp, "" ) ) )
+IF Empty( cSq ) .OR. Empty( cO )
+	RETURN Self
+ENDIF
+IF nStyle == NIL .AND. !( cO == "between" .OR. cO == "notbetween" )
+	nStyle := xValue2                           // one value (or none): the style after it
+ENDIF
+cTL := hb_ATokens( hb_ATokens( cSq, " " )[ 1 ], ":" )[ 1 ]      // the top left cell
+IF HB_ISSTRING( xValue1 )                        // a text of a DBF: UTF-8, as the cells
+	xValue1 := ::oParent:ToUTF8( xValue1 )
+ENDIF
+IF HB_ISSTRING( xValue2 )
+	xValue2 := ::oParent:ToUTF8( xValue2 )
+ENDIF
+cRule := '<cfRule type="%T%"' + IIF( HB_ISNUMERIC( nStyle ) .AND. nStyle >= 1, ' dxfId="' + HB_NTOS( nStyle - 1 ) + '"', '' ) + ' priority="%P%"'
+DO CASE
+CASE hb_HHasKey( hOp, cO )
+	cRule := StrTran( cRule, "%T%", "cellIs" ) + ' operator="' + hOp[ cO ] + '">' + ;
+	         '<formula>' + XmlEsc( _CfValue( xValue1 ) ) + '</formula>' + ;
+	         IIF( cO == "between" .OR. cO == "notbetween", '<formula>' + XmlEsc( _CfValue( xValue2 ) ) + '</formula>', '' )
+CASE cO == "text" .OR. cO == "nottext" .OR. cO == "begins" .OR. cO == "ends"
+	cT := ::oParent:ToUTF8( hb_CStr( xValue1 ) )
+	DO CASE
+	CASE cO == "text"
+		cRule := StrTran( cRule, "%T%", "containsText" ) + ' operator="containsText"'
+		cO := 'NOT(ISERROR(SEARCH(' + _CfStr( cT ) + ',' + cTL + ')))'
+	CASE cO == "nottext"
+		cRule := StrTran( cRule, "%T%", "notContainsText" ) + ' operator="notContains"'
+		cO := 'ISERROR(SEARCH(' + _CfStr( cT ) + ',' + cTL + '))'
+	CASE cO == "begins"
+		cRule := StrTran( cRule, "%T%", "beginsWith" ) + ' operator="beginsWith"'
+		cO := 'LEFT(' + cTL + ',LEN(' + _CfStr( cT ) + '))=' + _CfStr( cT )
+	OTHERWISE
+		cRule := StrTran( cRule, "%T%", "endsWith" ) + ' operator="endsWith"'
+		cO := 'RIGHT(' + cTL + ',LEN(' + _CfStr( cT ) + '))=' + _CfStr( cT )
+	ENDCASE
+	cRule += ' text="' + XmlEsc( cT ) + '"><formula>' + XmlEsc( cO ) + '</formula>'
+CASE cO == "formula" .OR. cO == "expression"
+	cT := ::oParent:ToUTF8( hb_CStr( xValue1 ) )
+	cRule := StrTran( cRule, "%T%", "expression" ) + '><formula>' + XmlEsc( IIF( Left( cT, 1 ) == "=", SubStr( cT, 2 ), cT ) ) + '</formula>'
+CASE cO == "duplicate"
+	cRule := StrTran( cRule, "%T%", "duplicateValues" ) + '>'
+CASE cO == "unique"
+	cRule := StrTran( cRule, "%T%", "uniqueValues" ) + '>'
+CASE cO == "blank"
+	cRule := StrTran( cRule, "%T%", "containsBlanks" ) + '><formula>LEN(TRIM(' + cTL + '))=0</formula>'
+CASE cO == "notblank"
+	cRule := StrTran( cRule, "%T%", "notContainsBlanks" ) + '><formula>LEN(TRIM(' + cTL + '))&gt;0</formula>'
+CASE cO == "aboveaverage"
+	cRule := StrTran( cRule, "%T%", "aboveAverage" ) + '>'
+CASE cO == "belowaverage"
+	cRule := StrTran( cRule, "%T%", "aboveAverage" ) + ' aboveAverage="0">'
+CASE cO == "top" .OR. cO == "bottom" .OR. cO == "top%" .OR. cO == "bottom%"
+	nN := IIF( HB_ISNUMERIC( xValue1 ) .AND. xValue1 >= 1, Int( xValue1 ), 10 )
+	cRule := StrTran( cRule, "%T%", "top10" ) + ' rank="' + HB_NTOS( nN ) + '"' + ;
+	         IIF( "%" $ cO, ' percent="1"', '' ) + IIF( Left( cO, 1 ) == "b", ' bottom="1"', '' ) + '>'
+OTHERWISE
+	RETURN Self                                 // an unknown rule: nothing
+ENDCASE
+AAdd( ::aCond, { cSq, cRule + '</cfRule>' } )
+RETURN Self
+
+// a color scale: the smallest value in cMinColor, the largest in cMaxColor, cMidColor at the
+// middle (50th percentile); the colors between are blended by Excel
+METHOD ColorScale( cRange, cMinColor, cMaxColor, cMidColor ) CLASS WorkSheet
+LOCAL cSq := _CfRange( cRange ), lMid := HB_ISSTRING( cMidColor ) .AND. ! Empty( cMidColor )
+IF Empty( cSq )
+	RETURN Self
+ENDIF
+AAdd( ::aCond, { cSq, '<cfRule type="colorScale" priority="%P%"><colorScale>' + ;
+	'<cfvo type="min"/>' + IIF( lMid, '<cfvo type="percentile" val="50"/>', '' ) + '<cfvo type="max"/>' + ;
+	'<color rgb="' + _ARGB( hb_defaultValue( cMinColor, "F8696B" ) ) + '"/>' + ;
+	IIF( lMid, '<color rgb="' + _ARGB( cMidColor ) + '"/>', '' ) + ;
+	'<color rgb="' + _ARGB( hb_defaultValue( cMaxColor, "63BE7B" ) ) + '"/></colorScale></cfRule>' } )
+RETURN Self
+
+// data bars: a bar in each cell, as long as its value among the values of the range
+METHOD DataBar( cRange, cColor ) CLASS WorkSheet
+LOCAL cSq := _CfRange( cRange )
+IF Empty( cSq )
+	RETURN Self
+ENDIF
+AAdd( ::aCond, { cSq, '<cfRule type="dataBar" priority="%P%"><dataBar><cfvo type="min"/><cfvo type="max"/>' + ;
+	'<color rgb="' + _ARGB( hb_defaultValue( cColor, "638EC6" ) ) + '"/></dataBar></cfRule>' } )
+RETURN Self
 
 // AutoFit( "A:J" ), AutoFit( "C" ), AutoFit( nFrom, nTo ), AutoFit(): the columns get the
 // width of their longest contents, as Excel's AutoFit. A file cannot ask Excel to do it, so
@@ -1343,6 +1493,9 @@ IF LEN( ::aMergeCells ) > 0
 	NEXT I
 	FWrite( handle, '</mergeCells>'+chr(10) )
 ENDIF
+FOR I := 1 TO LEN( ::aCond )                    // priority: in the order they were added
+	FWrite( handle, '<conditionalFormatting sqref="'+::aCond[I][1]+'">'+StrTran( ::aCond[I][2], "%P%", HB_NTOS(I) )+'</conditionalFormatting>'+chr(10) )
+NEXT I
 FWrite( handle, '<pageMargins left="'+HB_NTOC(::leftMargin)+'" right="'+HB_NTOC(::rightMargin)+'" top="'+HB_NTOC(::topMargin,2)+'" bottom="'+HB_NTOC(::bottomMargin,2)+'" header="'+HB_NTOC(::headerMargin,2)+'" footer="'+HB_NTOC(::footerMargin,2)+'"/>'+chr(10) )
 FWrite( handle, '<pageSetup paperSize="'+HB_NTOC(::PaperSize,0)+'" horizontalDpi="'+HB_NTOC(::horizontalDpi,2)+'" verticalDpi="'+HB_NTOC(::verticalDpi,2)+'"'+iif(::lLandscape,' orientation="landscape"',' orientation="portrait"')+' fitToWidth="'+iif(::fitToPage,"1","0")+'" fitToHeight="0"/>'+chr(10) )
 IF ::lHeader .OR. ::lFooter
@@ -2585,6 +2738,51 @@ c := StrTran( c, "general", "" )
 lT := "h" $ c .OR. "s" $ c
 lD := "d" $ c .OR. "y" $ c .OR. ( "m" $ c .AND. ! lT )
 RETURN IIF( lD, IIF( lT, 2, 1 ), IIF( lT, 3, 0 ) )
+
+//------------------------------------------------------------- Conditional() helpers
+
+// "a1:b5, $D$1:$D$5" -> "A1:B5 D1:D5" (sqref)
+STATIC FUNCTION _CfRange( c )
+LOCAL a := {}, x
+IF ! HB_ISSTRING( c )
+	RETURN ""
+ENDIF
+FOR EACH x IN hb_ATokens( StrTran( Upper( StrTran( c, "$", "" ) ), ",", " " ), " " )
+	IF ! Empty( x )
+		AAdd( a, AllTrim( x ) )
+	ENDIF
+NEXT
+RETURN _Join( a, " " )
+
+STATIC FUNCTION _Join( a, cSep )
+LOCAL c := "", x
+FOR EACH x IN a
+	c += IIF( x:__enumIndex() == 1, "", cSep ) + x
+NEXT
+RETURN c
+
+// a value of a rule as a formula: a number, a date (its serial number), TRUE / FALSE, a text in
+// quotes, "=..." a formula
+STATIC FUNCTION _CfValue( x )
+DO CASE
+CASE HB_ISNUMERIC( x )
+	RETURN hb_ntos( x )
+CASE HB_ISDATE( x )
+	RETURN hb_ntos( x - hb_SToD( "18991230" ) )
+CASE HB_ISDATETIME( x )
+	RETURN hb_ntos( Round( x - hb_SToT( "18991230000000" ), 10 ) )
+CASE HB_ISLOGICAL( x )
+	RETURN IIF( x, "TRUE", "FALSE" )
+CASE HB_ISSTRING( x ) .AND. Left( x, 1 ) == "="
+	RETURN SubStr( x, 2 )
+CASE HB_ISSTRING( x )
+	RETURN _CfStr( x )
+ENDCASE
+RETURN "0"
+
+// a text for a formula: in quotes, a quote doubled
+STATIC FUNCTION _CfStr( c )
+RETURN '"' + StrTran( c, '"', '""' ) + '"'
 
 //------------------------------------------------------------- AutoFit() helpers
 
