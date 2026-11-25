@@ -818,6 +818,7 @@ METHOD MergedCells()
 METHOD MergeCell(uAddr)
 METHOD CellStyle( uAddr, nStyle )
 METHOD ColumnsWidth( nMin, nMax, nWidth, lHidden )
+METHOD AutoFit( xFrom, xTo, nMaxWidth )
 METHOD AddHeader( cLeft, cCenter, cRight )
 METHOD AddFooter( cLeft, cCenter, cRight )
 METHOD RowDetail( nRow, nHeight, nStyle, lHide )
@@ -943,6 +944,80 @@ METHOD ColumnsWidth( nMin, nMax, nWidth, lHidden ) CLASS WorkSheet
 IF HB_ISNUMERIC(nMin) .AND. HB_ISNUMERIC(nMax) .AND. HB_ISNUMERIC(nWidth)
 	AADD( ::aCols, { nMin, nMax, nWidth, HB_ISLOGICAL( lHidden ) .AND. lHidden } )
 ENDIF
+Return Self
+
+// AutoFit( "A:J" ), AutoFit( "C" ), AutoFit( nFrom, nTo ), AutoFit(): the columns get the
+// width of their longest contents, as Excel's AutoFit. A file cannot ask Excel to do it, so
+// the width is computed here: the widths of the letters of Calibri (the default font: a
+// digit is 7 pixels), the number and date formats, the font size and bold of each cell,
+// and Excel's formula width = Truncate( ( pixels + 5 ) / 7 * 256 ) / 256. Other fonts are
+// scaled by their average width. Left out as in Excel: merged cells over more columns,
+// rotated text; a formula counts with the value saved with it (Read()), else not.
+// nMaxWidth: at most this wide (default 255). Call it after the cells are filled.
+METHOD AutoFit( xFrom, xTo, nMaxWidth ) CLASS WorkSheet
+LOCAL nC1, nC2, a, x, nRow, nCol, nR1 := 0, nC1m := 0, nR2 := 0, nC2m := 0
+LOCAL hSkip := { => }, hInfo := { => }, nStyle, h, nPx, nMax, cLine
+nMaxWidth := IIF( HB_ISNUMERIC( nMaxWidth ) .AND. nMaxWidth > 0, Min( nMaxWidth, 255 ), 255 )
+DO CASE
+CASE HB_ISSTRING( xFrom ) .AND. ":" $ xFrom
+	a := hb_ATokens( xFrom, ":" )
+	nC1 := _ColNum( a[ 1 ] )
+	nC2 := _ColNum( a[ 2 ] )
+CASE HB_ISSTRING( xFrom ) .OR. HB_ISNUMERIC( xFrom )
+	nC1 := IIF( HB_ISSTRING( xFrom ), _ColNum( xFrom ), xFrom )
+	nC2 := IIF( HB_ISSTRING( xTo ), _ColNum( xTo ), IIF( HB_ISNUMERIC( xTo ), xTo, nC1 ) )
+OTHERWISE
+	nC1 := 1
+	nC2 := ::nMaxCol
+ENDCASE
+nC2 := Min( nC2, ::nMaxCol )
+IF nC1 < 1 .OR. nC2 < nC1
+	RETURN Self
+ENDIF
+FOR EACH x IN ::aMergeCells
+	a := hb_ATokens( x, ":" )
+	WORKSHEET_RC( a[ 1 ], @nR1, @nC1m )
+	WORKSHEET_RC( a[ 2 ], @nR2, @nC2m )
+	IF nC2m > nC1m
+		FOR nRow := nR1 TO nR2
+			FOR nCol := nC1m TO nC2m
+				hSkip[ nRow * 16385 + nCol ] := .T.
+			NEXT
+		NEXT
+	ENDIF
+NEXT
+FOR nCol := nC1 TO nC2
+	nMax := 0
+	FOR nRow := 1 TO LEN( ::aData )
+		IF nCol > LEN( ::aData[ nRow ] ) .OR. ( x := ::aData[ nRow, nCol ] ) == NIL .OR. ;
+		   hb_HHasKey( hSkip, nRow * 16385 + nCol ) .OR. ( HB_ISSTRING( x ) .AND. x == Chr( 0 ) )
+			LOOP
+		ENDIF
+		IF HB_ISARRAY( x )                       // a formula: the value saved with it
+			IF LEN( x ) < 2 .OR. x[ 2 ] == NIL
+				LOOP
+			ENDIF
+			x := x[ 2 ]
+		ENDIF
+		nStyle := IIF( nRow <= LEN( ::aStyle ) .AND. HB_ISARRAY( ::aStyle[ nRow ] ) .AND. nCol <= LEN( ::aStyle[ nRow ] ), ;
+		               ::aStyle[ nRow, nCol ], 0 )
+		nStyle := IIF( HB_ISSTRING( nStyle ), Val( nStyle ), IIF( HB_ISNUMERIC( nStyle ), nStyle, 0 ) )   // kept as text
+		IF ! hb_HHasKey( hInfo, nStyle )
+			hInfo[ nStyle ] := ::oParent:StyleInfo( nStyle )
+		ENDIF
+		h := hInfo[ nStyle ]
+		IF h[ "rotation" ] != 0
+			LOOP
+		ENDIF
+		FOR EACH cLine IN hb_ATokens( _CellText( x, h[ "numformat" ] ), Chr( 10 ) )
+			nPx := _TextPx( cLine, h[ "bold" ] ) * _FontFactor( h[ "font" ] ) * h[ "size" ] / 11
+			nMax := Max( nMax, nPx )
+		NEXT
+	NEXT
+	IF nMax > 0
+		::ColumnsWidth( nCol, nCol, Min( nMaxWidth, Int( ( Round( nMax, 0 ) + 5 ) / 7 * 256 ) / 256 ) )
+	ENDIF
+NEXT
 Return Self
 
 // CellStyle( "B3" ) -> broj stila celije (0 = bez stila); CellStyle( "B3", nStyle )
@@ -2510,6 +2585,226 @@ c := StrTran( c, "general", "" )
 lT := "h" $ c .OR. "s" $ c
 lD := "d" $ c .OR. "y" $ c .OR. ( "m" $ c .AND. ! lT )
 RETURN IIF( lD, IIF( lT, 2, 1 ), IIF( lT, 3, 0 ) )
+
+//------------------------------------------------------------- AutoFit() helpers
+
+// "C", "$AB", "AB12" -> the number of the column
+STATIC FUNCTION _ColNum( c )
+LOCAL nRow := 0, nCol := 0, i, cL := ""
+c := Upper( AllTrim( c ) )
+FOR i := 1 TO LEN( c )
+	IF SubStr( c, i, 1 ) >= "A" .AND. SubStr( c, i, 1 ) <= "Z"
+		cL += SubStr( c, i, 1 )
+	ENDIF
+NEXT
+IF Empty( cL )
+	RETURN 0
+ENDIF
+WORKSHEET_RC( cL + "1", @nRow, @nCol )
+RETURN nCol
+
+// the text a cell shows: numbers and dates in their format
+STATIC FUNCTION _CellText( x, cFmt )
+DO CASE                                          // built-in 14 / 22: the short date of Windows
+CASE cFmt == "mm-dd-yy"
+	cFmt := "dd/mm/yyyy"
+CASE cFmt == "m/d/yy h:mm"
+	cFmt := "dd/mm/yyyy hh:mm"
+ENDCASE
+DO CASE
+CASE HB_ISSTRING( x )
+	RETURN x
+CASE HB_ISLOGICAL( x )
+	RETURN IIF( x, "TRUE", "FALSE" )
+CASE HB_ISDATE( x ) .OR. HB_ISDATETIME( x )
+	RETURN _DateText( IIF( Empty( cFmt ) .OR. Upper( cFmt ) == "GENERAL", "dd/mm/yyyy", cFmt ) )
+CASE HB_ISNUMERIC( x )
+	IF _IsDateFmt( cFmt )
+		RETURN _DateText( cFmt )
+	ENDIF
+	RETURN _NumText( x, cFmt )
+ENDCASE
+RETURN ""
+
+// a format of dates / times: d m y h s outside quotes, no digit placeholders
+STATIC FUNCTION _IsDateFmt( cFmt )
+LOCAL c := Lower( _FmtPlain( hb_defaultValue( cFmt, "" ) ) )
+RETURN ! Empty( c ) .AND. ! "general" $ c .AND. ! "0" $ c .AND. ! "#" $ c .AND. ;
+       ( "d" $ c .OR. "m" $ c .OR. "y" $ c .OR. "h" $ c .OR. "s" $ c )
+
+// the first section of a format without [colors], quoted texts, \x, _x and *x
+STATIC FUNCTION _FmtPlain( cFmt, cLit )
+LOCAL c := "", i := 1, ch, n
+cLit := ""
+DO WHILE i <= LEN( cFmt )
+	ch := SubStr( cFmt, i, 1 )
+	DO CASE
+	CASE ch == ";"
+		EXIT
+	CASE ch == "["
+		n := hb_At( "]", cFmt, i )
+		i := IIF( n == 0, LEN( cFmt ), n )
+	CASE ch == '"'
+		n := hb_At( '"', cFmt, i + 1 )
+		cLit += SubStr( cFmt, i + 1, IIF( n == 0, LEN( cFmt ), n ) - i - 1 )
+		i := IIF( n == 0, LEN( cFmt ), n )
+	CASE ch == "\"
+		cLit += SubStr( cFmt, i + 1, 1 )
+		i++
+	CASE ch == "_"
+		cLit += " "
+		i++
+	CASE ch == "*"
+		i++
+	OTHERWISE
+		c += ch
+	ENDCASE
+	i++
+ENDDO
+RETURN c
+
+// a number in a number format ("#,##0.00", "0%", "0.00 €" ...), General: at most 11 characters
+STATIC FUNCTION _NumText( n, cFmt )
+LOCAL aSec, cF, cLit := "", cPlain, nDot, nDec := 0, i, cInt, cDec, lNeg := n < 0, cOther := "", nZeros := 0, c, cNum
+IF Empty( cFmt ) .OR. Upper( cFmt ) == "GENERAL"
+	c := hb_ntos( n )
+	RETURN IIF( LEN( c ) > 11, Left( c, 11 ), c )
+ENDIF
+aSec := hb_ATokens( cFmt, ";" )
+cF := aSec[ 1 ]
+IF lNeg .AND. LEN( aSec ) >= 2
+	cF := aSec[ 2 ]                             // its own sign: (1,234.00)
+	lNeg := .F.
+ENDIF
+cPlain := _FmtPlain( cF, @cLit )
+IF "E+" $ Upper( cPlain ) .OR. "E-" $ Upper( cPlain )
+	RETURN Replicate( "0", LEN( cPlain ) ) + cLit
+ENDIF
+FOR i := 1 TO LEN( cPlain )
+	IF SubStr( cPlain, i, 1 ) == "%"
+		n *= 100
+	ENDIF
+NEXT
+nDot := At( ".", cPlain )
+IF nDot > 0
+	FOR i := nDot + 1 TO LEN( cPlain )
+		IF SubStr( cPlain, i, 1 ) $ "0#?"
+			nDec++
+		ELSE
+			EXIT
+		ENDIF
+	NEXT
+ENDIF
+FOR i := 1 TO IIF( nDot > 0, nDot - 1, LEN( cPlain ) )
+	IF SubStr( cPlain, i, 1 ) == "0"
+		nZeros++
+	ENDIF
+NEXT
+cNum := LTrim( Str( Abs( n ), 40, nDec ) )
+cInt := IIF( nDec > 0, Left( cNum, At( ".", cNum ) - 1 ), cNum )
+cDec := IIF( nDec > 0, "." + SubStr( cNum, At( ".", cNum ) + 1 ), "" )
+IF cInt == "0" .AND. nZeros == 0
+	cInt := ""
+ENDIF
+IF LEN( cInt ) < nZeros                         // "00000": leading zeros (PadL() would also cut)
+	cInt := Replicate( "0", nZeros - LEN( cInt ) ) + cInt
+ENDIF
+IF "," $ Left( cPlain, IIF( nDot > 0, nDot - 1, LEN( cPlain ) ) )
+	c := ""
+	FOR i := LEN( cInt ) TO 1 STEP -1
+		c := SubStr( cInt, i, 1 ) + IIF( ( LEN( cInt ) - i ) % 3 == 0 .AND. i < LEN( cInt ), ",", "" ) + c
+	NEXT
+	cInt := c
+ENDIF
+FOR i := 1 TO LEN( cPlain )                    // the signs and texts of the format
+	IF !( SubStr( cPlain, i, 1 ) $ "0#?.," )
+		cOther += SubStr( cPlain, i, 1 )
+	ENDIF
+NEXT
+RETURN IIF( lNeg, "-", "" ) + cInt + cDec + cOther + cLit
+
+// a date / time format with its widest values (English month and day names)
+STATIC FUNCTION _DateText( cFmt )
+LOCAL cLit := "", c := _FmtPlain( cFmt, @cLit ), cL := Lower( c ), cOut := "", i := 1, n, ch, aTok, t
+aTok := { { "yyyy", "2026" }, { "yy", "26" }, { "mmmmm", "S" }, { "mmmm", "September" }, { "mmm", "Sep" }, ;
+          { "mm", "12" }, { "m", "12" }, { "dddd", "Wednesday" }, { "ddd", "Wed" }, { "dd", "28" }, { "d", "28" }, ;
+          { "hh", "23" }, { "h", "23" }, { "ss", "59" }, { "s", "59" }, { "am/pm", "PM" }, { "a/p", "P" } }
+DO WHILE i <= LEN( c )
+	n := 0
+	FOR EACH t IN aTok
+		IF SubStr( cL, i, LEN( t[ 1 ] ) ) == t[ 1 ]
+			cOut += t[ 2 ]
+			n := LEN( t[ 1 ] )
+			EXIT
+		ENDIF
+	NEXT
+	IF n == 0
+		ch := SubStr( c, i, 1 )
+		cOut += ch
+		n := 1
+	ENDIF
+	i += n
+ENDDO
+RETURN cOut + cLit
+
+// the width of a text in pixels in Calibri 11 (bold: Calibri Bold) - widths of the font files
+STATIC FUNCTION _TextPx( c, lBold )
+STATIC s_cAsc := "35677::3447744467777777777447777=888977994586=9:8:87798=877464774786874783473<888856587:6765757", s_cAscB := "35677;:3557744467777777777447777=988977994586=::8:877:9=887565774786875784474<888856587;7765757"
+STATIC s_cLat := "357777776<6874765755489454689::7888888;87777444499:::::7:9999788777777;677773333888888878888878787878786868686989877777777779797979798:8434343434387548776363648564989898898:8:8:8=<85858576767676757575989898989898=:7777676764", s_cLatB := "357777776<687476575548944468:::7999999;8777744449::::::7:::::888777777;677774444888888878888878797979786868686999877777777779797979798:8444444444497548776464648664:8:8:8998:8:8:8=<85858576767676757575:8:8:8:8:8:8=;8787676764"
+STATIC s_cCyr := "779687445==98989888697<79989=9:98878:898==9;88=8787587:68877:88886679687;;8:76;7778576334;;87878", s_cCyrB := "779687445==98:899886:7<7::89=9:98878;8:8=>9<88=8787597;68878:8888667:787;<8:76;7778566444;<87878"
+STATIC s_hPun, s_hPunB
+LOCAL nPx := 0, i, n, nLen := hb_UTF8Len( c )
+IF s_hPun == NIL
+	s_hPun := { 0x20AC => 7, 0x2013 => 7, 0x2014 => 13, 0x2018 => 4, 0x2019 => 4, 0x201C => 6, 0x201D => 6, 0x2026 => 10 }
+	s_hPunB := { 0x20AC => 7, 0x2013 => 7, 0x2014 => 13, 0x2018 => 4, 0x2019 => 4, 0x201C => 6, 0x201D => 6, 0x2026 => 10 }
+ENDIF
+FOR i := 1 TO nLen
+	n := hb_UTF8Peek( c, i )
+	DO CASE
+	CASE n >= 32 .AND. n <= 126
+		nPx += hb_BCode( hb_BSubStr( IIF( lBold, s_cAscB, s_cAsc ), n - 31, 1 ) ) - 48
+	CASE n >= 0xA0 .AND. n <= 0x17F
+		nPx += hb_BCode( hb_BSubStr( IIF( lBold, s_cLatB, s_cLat ), n - 0x9F, 1 ) ) - 48
+	CASE n >= 0x400 .AND. n <= 0x45F
+		nPx += hb_BCode( hb_BSubStr( IIF( lBold, s_cCyrB, s_cCyr ), n - 0x3FF, 1 ) ) - 48
+	CASE hb_HHasKey( s_hPun, n )
+		nPx += IIF( lBold, s_hPunB[ n ], s_hPun[ n ] )
+	CASE ( n >= 0x1100 .AND. n <= 0x115F ) .OR. ( n >= 0x2E80 .AND. n <= 0xA4CF ) .OR. ;
+	     ( n >= 0xAC00 .AND. n <= 0xD7A3 ) .OR. ( n >= 0xF900 .AND. n <= 0xFAFF ) .OR. ;
+	     ( n >= 0xFE30 .AND. n <= 0xFE4F ) .OR. ( n >= 0xFF00 .AND. n <= 0xFF60 ) .OR. ;
+	     ( n >= 0xFFE0 .AND. n <= 0xFFE6 ) .OR. n >= 0x20000
+		nPx += 15                                // CJK: a wide character
+	OTHERWISE
+		nPx += 7
+	ENDCASE
+NEXT
+RETURN nPx
+
+// how much wider than Calibri a font is on average (from the font files)
+STATIC FUNCTION _FontFactor( cFont )
+LOCAL c := Lower( hb_defaultValue( cFont, "" ) )
+DO CASE
+CASE "calibri" $ c .OR. Empty( c )
+	RETURN 1
+CASE "arial" $ c .OR. "helvetica" $ c
+	RETURN 1.128
+CASE "times" $ c
+	RETURN 1.065
+CASE "verdana" $ c
+	RETURN 1.268
+CASE "tahoma" $ c
+	RETURN 1.13
+CASE "courier" $ c
+	RETURN 1.413
+CASE "consolas" $ c
+	RETURN 1.256
+CASE "segoe" $ c
+	RETURN 1.111
+CASE "georgia" $ c
+	RETURN 1.14
+ENDCASE
+RETURN 1.1                                       // another font: a little wider than Calibri
+
 
 #pragma BEGINDUMP
 #include "hbapi.h"

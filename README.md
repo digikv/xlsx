@@ -162,6 +162,8 @@ An empty date (`CToD( "" )`) is written as an empty cell.
 oSheet:ColumnsWidth( 1, 1, 30 )       // column A
 oSheet:ColumnsWidth( 2, 5, 12 )       // columns B..E
 oSheet:ColumnsWidth( 8, 8, 10, .T. )  // hide column H
+oSheet:AutoFit( "A:J" )               // columns A..J as wide as their contents
+oSheet:AutoFit()                      // all used columns; also AutoFit( "C" ), AutoFit( 2, 5 )
 // RowDetail( nRow, nHeight, nStyle, lHide )
 oSheet:RowDetail( 1, 28 )             // height of row 1
 oSheet:RowDetail( 7, , , .T. )        // hide row 7
@@ -169,6 +171,15 @@ oSheet:RowDetail( 7, , , .T. )        // hide row 7
 oSheet:MergeCell( "A10:E10" )         // call MergeCell() before Cell(),
 oSheet:Cell( "A10", "Merged title", nHead )   // the style is applied to the whole range
 ```
+
+`AutoFit()` works as Excel's AutoFit, which a file cannot ask Excel to do when it is opened: the
+width is computed when `AutoFit()` is called, so call it after the cells are filled. It measures
+the text each cell shows - numbers and dates in their format (`#,##0.00`, `0.0%`, `dd.mm.yyyy`,
+currency texts ...), with the font size and bold of the cell - using the letter widths of Calibri,
+the default font, taken from the font files (other fonts are scaled by their average width), and
+Excel's rule *width = Truncate( ( pixels + 5 ) / 7 * 256 ) / 256*. As in Excel, merged cells over
+more columns and rotated text are left out; of a formula the value saved with it counts (`Read()`).
+`AutoFit( "A:J", , 50 )`: at most 50 characters wide.
 
 ### Page setup, header and footer
 
