@@ -1459,7 +1459,11 @@ FOR i := 1 TO nRows
 			cCells += '<c r="'+c+'"'+cSA+'><v>'+HB_NTOC( x )+'</v></c>'+nl
 		CASE HB_ISARRAY( x )
 			// formula, interno { cFormula [, xVrednost] }
-			cCells += '<c r="'+c+'" t="str"'+cSA+'><f>'+XmlEsc( x[ 1 ] )+'</f></c>'+nl
+			// tip rezultata: tekst samo kad je poznata tekstualna vrednost, inace broj
+			// (t="str" bez vrednosti je Calc-u i zbir prikazivao kao tekst)
+			cCells += '<c r="'+c+'"'+IIF( LEN( x ) >= 2 .AND. HB_ISSTRING( x[ 2 ] ), ' t="str"', '' )+cSA+'><f>'+XmlEsc( x[ 1 ] )+'</f>' + ;
+			          IIF( LEN( x ) >= 2 .AND. HB_ISNUMERIC( x[ 2 ] ), '<v>'+HB_NTOC( x[ 2 ] )+'</v>', ;
+			          IIF( LEN( x ) >= 2 .AND. HB_ISSTRING( x[ 2 ] ), '<v>'+XmlEsc( x[ 2 ] )+'</v>', '' ) )+'</c>'+nl
 		CASE HB_ISSTRING( x )
 			IF LEFT( x, 1 ) == CHR(0)
 				// ostatak spojene celije: stil celije ili poslednji stil u redu
